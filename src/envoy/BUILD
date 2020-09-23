@@ -33,6 +33,7 @@ envoy_cc_binary(
         "//src/envoy/extensions/wasm:wasm_lib",
         "//src/envoy/http/alpn:config_lib",
         "//src/envoy/http/authn:filter_lib",
+        "//src/envoy/http/data_trace_logger:data_trace_logger",
         "//src/envoy/http/mixer:filter_lib",
         "//src/envoy/tcp/forward_downstream_sni:config_lib",
         "//src/envoy/tcp/metadata_exchange:config_lib",
