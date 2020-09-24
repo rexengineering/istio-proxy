@@ -1,4 +1,4 @@
-FROM  gcr.io/istio-testing/build-tools-proxy:release-1.7-latest AS builder
+FROM gcr.io/istio-testing/build-tools-proxy@sha256:ef91d7f32369c5663b650cc645adf6da06bb94fcb3a0bfdd6cef43e5cfc669e0 AS releasebuilder
 
 RUN apt-get update -y && apt-get install -y emacs less
 RUN mkdir /proxy
