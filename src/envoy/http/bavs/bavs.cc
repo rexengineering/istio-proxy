@@ -108,6 +108,10 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
         }
     );
 
+    // Inject tracing context
+    Envoy::Tracing::Span& active_span = encoder_callbacks_->activeSpan();
+    active_span.injectContext(*(request_headers_.get()));
+
     std::string cluster = vsr.getCluster();
     stream_ = cluster_manager_.httpAsyncClientForCluster(cluster).start(stream_callbacks_, AsyncClient::StreamOptions());
     stream_->sendHeaders(*request_headers_.get(), end_stream);
