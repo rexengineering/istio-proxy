@@ -15,6 +15,7 @@
 #include "common/http/message_impl.h"
 #include "common/common/base64.h"
 #include "bavs.h"
+#include "envoy/upstream/cluster_manager.h"
 
 
 #include <typeinfo>
@@ -77,7 +78,7 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
         std::cout << "not workflow - encodeHeaders exit" << std::endl;
         return FilterHeadersStatus::Continue;
     }
-    std::map<std::string, std::string> next_cluster_map = cluster_manager_.nextClusterMap();
+    std::map<std::string, Envoy::VirtualServiceRoute> next_cluster_map = cluster_manager_.nextClusterMap();
     if (!next_cluster_map.count(std::to_string(decisionpoint_id_ + 1))) {
         is_workflow_ = false;
         std::cout << "At the last step in the workflow, so doing nothing" << std::endl;
@@ -93,19 +94,21 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
         return FilterHeadersStatus::Continue;
     }
 
+    const auto vsr = next_cluster_map[std::to_string(decisionpoint_id_ + 1)];
+
     // Create headers to send over to the next place.
     request_headers_ = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
         {
-            {Http::Headers::get().Method, "POST"},
+            {Http::Headers::get().Method, vsr.getMethod()},
             {Http::Headers::get().Host, "bavs-host:9881"},
-            {Http::Headers::get().Path, "/"},
+            {Http::Headers::get().Path, vsr.getPath()},
             {Http::Headers::get().ContentType, "application/json"},
             {Http::Headers::get().ContentLength, std::string(headers.getContentLengthValue())},
             {Http::LowerCaseString("decisionpoint"), std::to_string(decisionpoint_id_ + 1)}
         }
     );
 
-    std::string cluster = next_cluster_map[std::to_string(decisionpoint_id_ + 1)];
+    std::string cluster = vsr.getCluster();
     stream_ = cluster_manager_.httpAsyncClientForCluster(cluster).start(stream_callbacks_, AsyncClient::StreamOptions());
     stream_->sendHeaders(*request_headers_.get(), end_stream);
 
