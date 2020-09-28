@@ -1,4 +1,5 @@
 #include <string>
+#include <cctype>
 #include <cstring>
 #include <iostream>
 #include <stdio.h>
@@ -14,18 +15,24 @@
 namespace Util {
 /**
  * Returns true if there are no non-ascii characters in the buffer AND
- * if there are no null-terminators except at the (n-1)th position in
+ * if there are no null-terminators except at the last position in
  * the buffer.
  */
-bool is_print(const char* s, int n) {
-    const char* end = s + n - 1;
-    for (const char *cur = s; cur < end; cur++) {
-        if (!std::isprint(*cur)) return false;
+bool is_print(const std::string& s) {
+    auto it = s.crbegin();
+    if (*it != '\0' && !std::isprint(*it)) {
+        // last char is not NULL terminator and not otherwise
+        // printable, so fail
+        return false;
     }
-    return *end == '\0' || std::isprint(*end);
-}
-}
 
+    for (++it; it != s.crend(); ++it)
+        if (!std::isprint(*it))
+            return false;
+
+    return true;
+}
+} // namespace Util
 
 namespace Envoy {
 namespace Http {
@@ -50,7 +57,7 @@ void DataTraceLogger::logBufferInstance(Buffer::Instance& data, Tracing::Span& a
 
     
     std::string data_str(data.toString());
-    bool data_can_print = Util::is_print(data_str.c_str(), data_length);
+    bool data_can_print = Util::is_print(data_str);
     const char *data_buffer = data_str.c_str();
 
     if (!data_can_print) {
