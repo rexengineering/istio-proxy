@@ -1,14 +1,19 @@
 #include <string>
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
+#include <chrono>
+#include <time.h>
 #include <iostream>
 #include <stdio.h>
 
 #include "envoy/http/filter.h"
 #include "envoy/registry/registry.h"
 #include "envoy/server/filter_config.h"
+#include "common/buffer/buffer_impl.h"
 
 #include "extensions/filters/http/common/pass_through_filter.h"
+#include "common/http/header_map_impl.h"
 #include "common/common/base64.h"
 #include "data_trace_logger.h"
 
@@ -36,6 +41,23 @@ bool is_print(const std::string& s) {
 
 namespace Envoy {
 namespace Http {
+
+class DummyStreamCB : public AsyncClient::StreamCallbacks {
+    virtual void onHeaders(ResponseHeaderMapPtr&&, bool) {std::cout << "hi" << std::endl;}
+
+    virtual void onData(Buffer::Instance&, bool) {std::cout << "hi" << std::endl;}
+
+    virtual void onTrailers(ResponseTrailerMapPtr&&) {}
+
+    virtual void onComplete() {std::cout << "complete" << std::endl;}
+
+    virtual void onReset() {}
+};
+
+static DummyStreamCB stream_callbacks_;
+static std::unique_ptr<Http::RequestHeaderMapImpl> request_headers_1_;
+static std::unique_ptr<Http::RequestHeaderMapImpl> request_headers_2_;
+
 
 void DataTraceLogger::dumpHeaders(RequestOrResponseHeaderMap& headers, std::string span_tag) {
     std::vector<std::string> vals;
@@ -86,14 +108,14 @@ void DataTraceLogger::logBufferInstance(Buffer::Instance& data, Tracing::Span& a
 
 FilterDataStatus DataTraceLogger::decodeData(Buffer::Instance& data, bool end_stream) {
     // intercepts the request data
+    if (!should_log_) return FilterDataStatus::Continue;
+    if (request_stream_) {
+        Buffer::OwnedImpl cpy{data};
+        request_stream_->sendData(cpy, end_stream);
+    }
     if (!end_stream) {
-        auto& active_span = decoder_callbacks_->activeSpan();
 
-        /*  The current Zipkin trace reporter ignores logs.  I can verify the
-            log message is being stored in the span, and that the serializer
-            ignores log "annotations" completely.  So functionally, the
-            following line does nothing. */
-        active_span.log(std::chrono::system_clock::now(), "decodedData");
+        auto& active_span = decoder_callbacks_->activeSpan();
         if (request_stream_fragment_count_ < MAX_REQUEST_OR_RESPONSE_TAGS) {
             logBufferInstance(data, active_span, "request_data");
         }
@@ -103,11 +125,14 @@ FilterDataStatus DataTraceLogger::decodeData(Buffer::Instance& data, bool end_st
 
 FilterDataStatus DataTraceLogger::encodeData(Buffer::Instance& data, bool end_stream) {
     // intercepts the response data
+    if (!should_log_) return FilterDataStatus::Continue;
+    if (response_stream_) {
+        Buffer::OwnedImpl cpy{data};
+        response_stream_->sendData(cpy, end_stream);
+    }
     if (!end_stream) {
+
         auto& active_span = encoder_callbacks_->activeSpan();
-
-        active_span.log(std::chrono::system_clock::now(), "encodedData");
-
         if (response_stream_fragment_count_ < MAX_REQUEST_OR_RESPONSE_TAGS) {
             logBufferInstance(data, active_span, "response_data");
         }
@@ -117,14 +142,66 @@ FilterDataStatus DataTraceLogger::encodeData(Buffer::Instance& data, bool end_st
 
 FilterHeadersStatus DataTraceLogger::decodeHeaders(Http::RequestHeaderMap& headers, bool) {
     // intercepts the request headers.
+    const Http::HeaderEntry* entry = headers.get(Http::LowerCaseString(DTL_FILTER_S3_HEADER));
+    should_log_ = ((entry == NULL) || (entry->value() != DTL_FILTER_S3_DONTTRACEME));
     dumpHeaders(headers, "request_headers");
+    if (should_log_) {
+        initializeStream(headers, "request");
+    }
+
     return FilterHeadersStatus::Continue;
 }
 
 FilterHeadersStatus DataTraceLogger::encodeHeaders(Http::ResponseHeaderMap& headers, bool) {
     // intercepts the Response headers.
     dumpHeaders(headers, "response_headers");
+
+    if (should_log_) initializeStream(headers, "response");
+
     return FilterHeadersStatus::Continue;
+}
+
+void DataTraceLogger::initializeStream(Http::RequestOrResponseHeaderMap& headers, std::string type) {
+    assert(type == "request" || type == "response");
+
+    if (headers.TransferEncoding() && !headers.ContentLength()) return;  // No body...don't nobody got time for that
+
+    std::string s3_object_key = std::to_string(rand());
+    if (type == "request") {
+        request_headers_1_ = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
+            {
+                {Http::Headers::get().Method, Http::Headers::get().MethodValues.Post},
+                {Http::Headers::get().Host, S3_UPLOADER_HOST},
+                {Http::Headers::get().Path, "/upload"},
+                {Http::Headers::get().ContentType, "application/octet-stream"},
+                {Http::LowerCaseString(DTL_FILTER_S3_HEADER), DTL_FILTER_S3_DONTTRACEME},
+                {Http::LowerCaseString(S3_KEY_HEADER), s3_object_key}
+            }
+        );
+        Envoy::Tracing::Span& active_span = decoder_callbacks_->activeSpan();
+        active_span.injectContext(*(request_headers_1_.get()));
+        active_span.setTag(type + "_s3_key", s3_object_key);
+        request_stream_ = cluster_manager_.httpAsyncClientForCluster(S3_UPLOADER_CLUSTER).start(
+        stream_callbacks_, AsyncClient::StreamOptions());
+        request_stream_->sendHeaders(*request_headers_1_.get(), false);
+    } else {
+        request_headers_2_ = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
+            {
+                {Http::Headers::get().Method, Http::Headers::get().MethodValues.Post},
+                {Http::Headers::get().Host, S3_UPLOADER_HOST},
+                {Http::Headers::get().Path, "/upload"},
+                {Http::Headers::get().ContentType, "application/octet-stream"},
+                {Http::LowerCaseString(DTL_FILTER_S3_HEADER), DTL_FILTER_S3_DONTTRACEME},
+                {Http::LowerCaseString(S3_KEY_HEADER), s3_object_key}
+            }
+        );
+        Envoy::Tracing::Span& active_span = encoder_callbacks_->activeSpan();
+        active_span.injectContext(*(request_headers_2_.get()));
+        active_span.setTag(type + "_s3_key", s3_object_key);
+        response_stream_ = cluster_manager_.httpAsyncClientForCluster(S3_UPLOADER_CLUSTER).start(
+            stream_callbacks_, AsyncClient::StreamOptions());
+        response_stream_->sendHeaders(*request_headers_2_.get(), false);
+    }
 }
 
 } // namespace Http

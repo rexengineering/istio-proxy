@@ -35,22 +35,36 @@ namespace Http {
  * 50M for data that can be reported in the span. Anything larger will not be
  * put into the span and therefore not logged into Jaeger.
  */
-#define MAX_SPAN_DATA_SIZE 0x3200000
+#define MAX_SPAN_DATA_SIZE 0x100000 //0x3200000
 #define MAX_REQUEST_SPAN_DATA_SIZE MAX_SPAN_DATA_SIZE / 2
 #define MAX_RESPONSE_SPAN_DATA_SIZE MAX_SPAN_DATA_SIZE / 2
 // For code simplicity:
 #define MAX_REQUEST_OR_RESPONSE_TAGS MAX_REQUEST_SPAN_DATA_SIZE / TAG_SIZE
 
+// Don't trace requests to the S3 storage service.
+#define DTL_FILTER_S3_HEADER "x-rextrace-is-s3-request"
+#define S3_KEY_HEADER "x-rextrace-s3-object-key"
+#define S3_UPLOADER_CLUSTER "outbound|9080||s3-uploader.default.svc.cluster.local"
+#define S3_UPLOADER_HOST "s3-uploader:9080"
+#define DTL_FILTER_S3_DONTTRACEME "donttraceme"
 
 class DataTraceLogger : public PassThroughFilter, public Logger::Loggable<Logger::Id::filter> {
 private:
     void dumpHeaders(RequestOrResponseHeaderMap& headers, std::string span_tag);
     void logBufferInstance(Buffer::Instance& data, Tracing::Span& active_span, std::string tag_name);
+    void initializeStream(Http::RequestOrResponseHeaderMap& headers, std::string type);
     bool is_print(const char* s, int n);
     int request_stream_fragment_count_;
     int response_stream_fragment_count_;
+    Upstream::ClusterManager& cluster_manager_;
+    AsyncClient::Stream* request_stream_;
+    AsyncClient::Stream* response_stream_;
+    bool should_log_;
 public:
-    DataTraceLogger() : request_stream_fragment_count_(0), response_stream_fragment_count_(0) {};
+    DataTraceLogger(Upstream::ClusterManager& cm) : request_stream_fragment_count_(0),
+        response_stream_fragment_count_(0), cluster_manager_(cm) {
+                srand(time(NULL));
+        };
     FilterDataStatus decodeData(Buffer::Instance& data, bool end_stream);
     FilterDataStatus encodeData(Buffer::Instance& data, bool end_stream);
     FilterHeadersStatus decodeHeaders(Http::RequestHeaderMap& headers, bool);
