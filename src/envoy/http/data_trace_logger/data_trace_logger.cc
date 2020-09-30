@@ -42,22 +42,36 @@ bool is_print(const std::string& s) {
 namespace Envoy {
 namespace Http {
 
-class DummyStreamCB : public AsyncClient::StreamCallbacks {
-    virtual void onHeaders(ResponseHeaderMapPtr&&, bool) {std::cout << "hi" << std::endl;}
+class DummyCb : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
+public:
+    ~DummyCb() = default;
+    DummyCb(std::string id, std::map<std::string, std::unique_ptr<AsyncStreamCallbacksAndHeaders>>& map_ref,
+        std::unique_ptr<RequestHeaderMapImpl> headers, Upstream::ClusterManager& cm) :
+            id_(id), map_(map_ref), headers_(std::move(headers)), cluster_manager_(cm) {}
 
-    virtual void onData(Buffer::Instance&, bool) {std::cout << "hi" << std::endl;}
+    virtual void onHeaders(ResponseHeaderMapPtr&&, bool) override {}
+    virtual void onData(Buffer::Instance&, bool) override {}
+    virtual void onTrailers(ResponseTrailerMapPtr&&) override {}
+    virtual void onReset() override {}
+    virtual void onComplete() override {
+        // remove ourself from the clusterManager
+        std::cout << "erasing ourself now" << std::endl;
+        std::lock_guard<std::mutex> lock(cluster_manager_.httpRequestStorageMutex());
+        map_.erase(id_);
+        std::cout << "done cleaning up" << std::endl;
+    }
+    virtual Http::RequestHeaderMapImpl& requestHeaderMap() override {return *(headers_.get());}
 
-    virtual void onTrailers(ResponseTrailerMapPtr&&) {}
-
-    virtual void onComplete() {std::cout << "complete" << std::endl;}
-
-    virtual void onReset() {}
+private:
+    std::string id_;
+    std::map<std::string, std::unique_ptr<AsyncStreamCallbacksAndHeaders>>& map_;
+    std::unique_ptr<RequestHeaderMapImpl> headers_;
+    Upstream::ClusterManager& cluster_manager_;
 };
 
-static DummyStreamCB stream_callbacks_;
-static std::unique_ptr<Http::RequestHeaderMapImpl> request_headers_1_;
-static std::unique_ptr<Http::RequestHeaderMapImpl> request_headers_2_;
-
+// static DummyStreamCB stream_callbacks_;
+// static std::unique_ptr<Http::RequestHeaderMapImpl> request_headers_1_;  // id
+// static std::unique_ptr<Http::RequestHeaderMapImpl> request_headers_2_;
 
 void DataTraceLogger::dumpHeaders(RequestOrResponseHeaderMap& headers, std::string span_tag) {
     std::vector<std::string> vals;
@@ -119,6 +133,10 @@ FilterDataStatus DataTraceLogger::decodeData(Buffer::Instance& data, bool end_st
         if (request_stream_fragment_count_ < MAX_REQUEST_OR_RESPONSE_TAGS) {
             logBufferInstance(data, active_span, "request_data");
         }
+    // } else {
+    //     auto cb = cluster_manager_.httpRequestStorageMap()[request_key_].get();
+    //     cb->setStream(std::move(request_stream_));
+    //     std::cout << "returned from setStream " << std::endl;
     }
     return FilterDataStatus::Continue;
 }
@@ -161,46 +179,46 @@ FilterHeadersStatus DataTraceLogger::encodeHeaders(Http::ResponseHeaderMap& head
     return FilterHeadersStatus::Continue;
 }
 
-void DataTraceLogger::initializeStream(Http::RequestOrResponseHeaderMap& headers, std::string type) {
+void DataTraceLogger::initializeStream(Http::RequestOrResponseHeaderMap&, std::string type) {
     assert(type == "request" || type == "response");
+    std::string s3_object_key = std::to_string(rand()) + std::to_string(rand());  // twice because rand is only up to 10 billion
 
-    if (headers.TransferEncoding() && !headers.ContentLength()) return;  // No body...don't nobody got time for that
+    std::unique_ptr<RequestHeaderMapImpl> s3_headers = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
+        {
+            {Http::Headers::get().Method, Http::Headers::get().MethodValues.Post},
+            {Http::Headers::get().Host, S3_UPLOADER_HOST},
+            {Http::Headers::get().Path, "/upload"},
+            {Http::Headers::get().ContentType, "application/octet-stream"},
+            {Http::LowerCaseString(DTL_FILTER_S3_HEADER), DTL_FILTER_S3_DONTTRACEME},
+            {Http::LowerCaseString(S3_KEY_HEADER), s3_object_key}
+        }
+    );
 
-    std::string s3_object_key = std::to_string(rand());
+    Envoy::Tracing::Span& active_span = decoder_callbacks_->activeSpan();
+    active_span.injectContext(*(s3_headers.get()));  // Show this request on the same span
+    active_span.setTag(type + "_s3_key", s3_object_key);  // let the eng know where to find data in s3
+
+    std::map<std::string, std::unique_ptr<Upstream::AsyncStreamCallbacksAndHeaders>> &storage_map = cluster_manager_.httpRequestStorageMap();  
+
+    std::unique_ptr<DummyCb> callbacks(new DummyCb(s3_object_key, storage_map, std::move(s3_headers), cluster_manager_));
+
+    // we now start modifying the map, so we need to lock it
+    std::lock_guard<std::mutex> lock(cluster_manager_.httpRequestStorageMutex());
+
+    // important to move over the callbacks BEFORE we send headers, otherwise onData() could trigger before the 
+    // callbacks are in the map. That would cause all kinds of issues.
+    storage_map[s3_object_key] = std::move(callbacks);
+
     if (type == "request") {
-        request_headers_1_ = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
-            {
-                {Http::Headers::get().Method, Http::Headers::get().MethodValues.Post},
-                {Http::Headers::get().Host, S3_UPLOADER_HOST},
-                {Http::Headers::get().Path, "/upload"},
-                {Http::Headers::get().ContentType, "application/octet-stream"},
-                {Http::LowerCaseString(DTL_FILTER_S3_HEADER), DTL_FILTER_S3_DONTTRACEME},
-                {Http::LowerCaseString(S3_KEY_HEADER), s3_object_key}
-            }
-        );
-        Envoy::Tracing::Span& active_span = decoder_callbacks_->activeSpan();
-        active_span.injectContext(*(request_headers_1_.get()));
-        active_span.setTag(type + "_s3_key", s3_object_key);
         request_stream_ = cluster_manager_.httpAsyncClientForCluster(S3_UPLOADER_CLUSTER).start(
-        stream_callbacks_, AsyncClient::StreamOptions());
-        request_stream_->sendHeaders(*request_headers_1_.get(), false);
+            *(storage_map[s3_object_key].get()), AsyncClient::StreamOptions());
+        request_stream_->sendHeaders((storage_map[s3_object_key].get())->requestHeaderMap(), false);
+        request_key_ = s3_object_key;
     } else {
-        request_headers_2_ = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
-            {
-                {Http::Headers::get().Method, Http::Headers::get().MethodValues.Post},
-                {Http::Headers::get().Host, S3_UPLOADER_HOST},
-                {Http::Headers::get().Path, "/upload"},
-                {Http::Headers::get().ContentType, "application/octet-stream"},
-                {Http::LowerCaseString(DTL_FILTER_S3_HEADER), DTL_FILTER_S3_DONTTRACEME},
-                {Http::LowerCaseString(S3_KEY_HEADER), s3_object_key}
-            }
-        );
-        Envoy::Tracing::Span& active_span = encoder_callbacks_->activeSpan();
-        active_span.injectContext(*(request_headers_2_.get()));
-        active_span.setTag(type + "_s3_key", s3_object_key);
         response_stream_ = cluster_manager_.httpAsyncClientForCluster(S3_UPLOADER_CLUSTER).start(
-            stream_callbacks_, AsyncClient::StreamOptions());
-        response_stream_->sendHeaders(*request_headers_2_.get(), false);
+            *(storage_map[s3_object_key].get()), AsyncClient::StreamOptions());
+        response_stream_->sendHeaders((storage_map[s3_object_key].get())->requestHeaderMap(), false);
+        response_key_ = s3_object_key;
     }
 }
 

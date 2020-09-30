@@ -6,6 +6,7 @@
 // #include "config.h"
 #include "extensions/filters/http/common/pass_through_filter.h"
 #include "common/common/base64.h"
+#include "common/http/header_map_impl.h"
 
 
 namespace Envoy {
@@ -57,8 +58,15 @@ private:
     int request_stream_fragment_count_;
     int response_stream_fragment_count_;
     Upstream::ClusterManager& cluster_manager_;
+
+    // These streams MUST be move()'ed over to persistent storage in the cluster_manager_ before
+    // the filter goes out of scope
     AsyncClient::Stream* request_stream_;
     AsyncClient::Stream* response_stream_;
+
+    std::string request_key_;
+    std::string response_key_;
+
     bool should_log_;
 public:
     DataTraceLogger(Upstream::ClusterManager& cm) : request_stream_fragment_count_(0),
