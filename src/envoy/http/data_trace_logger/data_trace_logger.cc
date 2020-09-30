@@ -55,10 +55,8 @@ public:
     virtual void onReset() override {}
     virtual void onComplete() override {
         // remove ourself from the clusterManager
-        std::cout << "erasing ourself now" << std::endl;
         std::lock_guard<std::mutex> lock(cluster_manager_.httpRequestStorageMutex());
         map_.erase(id_);
-        std::cout << "done cleaning up" << std::endl;
     }
     virtual Http::RequestHeaderMapImpl& requestHeaderMap() override {return *(headers_.get());}
 
@@ -133,10 +131,6 @@ FilterDataStatus DataTraceLogger::decodeData(Buffer::Instance& data, bool end_st
         if (request_stream_fragment_count_ < MAX_REQUEST_OR_RESPONSE_TAGS) {
             logBufferInstance(data, active_span, "request_data");
         }
-    // } else {
-    //     auto cb = cluster_manager_.httpRequestStorageMap()[request_key_].get();
-    //     cb->setStream(std::move(request_stream_));
-    //     std::cout << "returned from setStream " << std::endl;
     }
     return FilterDataStatus::Continue;
 }
