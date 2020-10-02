@@ -155,10 +155,6 @@ FilterDataStatus DataTraceLogger::decodeData(Buffer::Instance& data, bool end_st
         if (request_stream_fragment_count_ < MAX_REQUEST_OR_RESPONSE_TAGS) {
             logBufferInstance(data, active_span, "request_data");
         }
-    // } else {
-    //     auto cb = cluster_manager_.httpRequestStorageMap()[request_key_].get();
-    //     cb->setStream(std::move(request_stream_));
-    //     std::cout << "returned from setStream " << std::endl;
     }
     return FilterDataStatus::Continue;
 }
