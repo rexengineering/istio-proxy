@@ -30,25 +30,30 @@ namespace Http {
 
 /**
  * Currently, Envoy stores spans in memory before flushing several entire spans at once
- * to Jaeger. Therefore, if we have a few large (1GB) requests in a row, Envoy's pod
- * will quickly run out of memory, causing a crash. Until we "gut" Envoy's trace
- * reporter and make it use streaming, we will solve this issue by imposing a cap of
- * 50M for data that can be reported in the span. Anything larger will not be
- * put into the span and therefore not logged into Jaeger.
+ * to Jaeger. Therefore, if we have a few large (>1MB) requests in a row, Envoy's pod
+ * will quickly run out of memory, causing a crash. Trust me, I've tried. Until we change
+ * Envoy's trace reporter and make it use streaming, we will solve this issue by capping
+ * span data at 1MB per span. Anytime there's a larger request, we will stream the data
+ * to a service that writes it to s3.
  */
-#define MAX_SPAN_DATA_SIZE 0x100000 //0x3200000
+#define MAX_SPAN_DATA_SIZE 0x100000
 #define MAX_REQUEST_SPAN_DATA_SIZE MAX_SPAN_DATA_SIZE / 2
 #define MAX_RESPONSE_SPAN_DATA_SIZE MAX_SPAN_DATA_SIZE / 2
 // For code simplicity:
 #define MAX_REQUEST_OR_RESPONSE_TAGS MAX_REQUEST_SPAN_DATA_SIZE / TAG_SIZE
 
+// Key that tells s3 uploader service what to name this object
+#define S3_KEY_HEADER "x-rextrace-s3-object-key"
+
 // Don't trace requests to the S3 storage service.
 #define DTL_FILTER_S3_HEADER "x-rextrace-is-s3-request"
-#define S3_KEY_HEADER "x-rextrace-s3-object-key"
-//#define S3_UPLOADER_CLUSTER "outbound|9080||s3-uploader.default.svc.cluster.local"
-#define S3_UPLOADER_CLUSTER "outbound|9080||svc-four.default.svc.cluster.local"
+#define S3_UPLOADER_CLUSTER "outbound|9080||s3-uploader.default.svc.cluster.local"
 #define S3_UPLOADER_HOST "s3-uploader:9080"
 #define DTL_FILTER_S3_DONTTRACEME "donttraceme"
+
+// How long to wait for "200" response from s3-uploader service.
+// As of now, there's no action taken on error condition. Maybe change that?
+#define TIMEOUT_MS 9000
 
 class DummyCb;
 
@@ -63,16 +68,14 @@ private:
     Upstream::ClusterManager& cluster_manager_;
 
     bool should_log_;
-    DummyCb* callbacks_;
+    DummyCb* req_callbacks_;
+    DummyCb* res_callbacks_;
 public:
     DataTraceLogger(Upstream::ClusterManager& cm) : request_stream_fragment_count_(0),
         response_stream_fragment_count_(0), cluster_manager_(cm) {
                 srand(time(NULL));
-                std::cout << "DataTraceLogger ctor " << this << std::endl;
         };
-    ~DataTraceLogger() {
-        std::cout << "DataTraceLogger dtor " << this << std::endl;
-    }
+    ~DataTraceLogger() {}
     FilterDataStatus decodeData(Buffer::Instance& data, bool end_stream);
     FilterDataStatus encodeData(Buffer::Instance& data, bool end_stream);
     FilterHeadersStatus decodeHeaders(Http::RequestHeaderMap& headers, bool);
