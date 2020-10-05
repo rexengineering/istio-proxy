@@ -52,7 +52,9 @@ namespace Http {
 #define DTL_FILTER_S3_DONTTRACEME "donttraceme"
 
 // How long to wait for "200" response from s3-uploader service.
-// As of now, there's no action taken on error condition. Maybe change that?
+// As of now, there's no action taken on error condition, as none are possible:
+// resending the request would require storing the whole request in memory,
+// which is exactly what we're trying to avoid.
 #define TIMEOUT_MS 9000
 
 class DummyCb;
@@ -68,8 +70,8 @@ private:
     Upstream::ClusterManager& cluster_manager_;
 
     bool should_log_;
-    DummyCb* req_callbacks_;
-    DummyCb* res_callbacks_;
+    DummyCb* request_callbacks_;
+    DummyCb* response_callbacks_;
 public:
     DataTraceLogger(Upstream::ClusterManager& cm) : request_stream_fragment_count_(0),
         response_stream_fragment_count_(0), cluster_manager_(cm) {
