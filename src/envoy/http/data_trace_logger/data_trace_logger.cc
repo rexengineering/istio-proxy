@@ -47,7 +47,7 @@ class DummyCb : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
 public:
     ~DummyCb() {}
     DummyCb(std::string id, std::unique_ptr<RequestHeaderMapImpl> headers, Upstream::ClusterManager& cm) 
-        : id_(id), headers_(std::move(headers)), cluster_manager_(cm) {
+        : id_(id), headers_(std::move(headers)), cluster_manager_(cm), deleted_(false) {
         cluster_manager_.storeCallbacksAndHeaders(id, this);
     }
 
@@ -57,12 +57,14 @@ public:
     void onReset() override {}
     void onComplete() override {
         // remove ourself from the clusterManager
+        deleted_ = true;
         // cluster_manager_.eraseCallbackAndHeaders(id_);
     }
     void setStream(AsyncClient::Stream* stream) { stream_ = stream;}
     Http::RequestHeaderMapImpl& requestHeaderMap() override {
         return *(headers_.get());
     }
+    bool isDeleted() {return deleted_;}
     AsyncClient::Stream* stream() {
         return stream_;
     }
@@ -71,6 +73,7 @@ private:
     std::string id_;
     std::unique_ptr<RequestHeaderMapImpl> headers_;
     Upstream::ClusterManager& cluster_manager_;
+    bool deleted_;
 
     AsyncClient::Stream* stream_;
 };
@@ -137,10 +140,10 @@ FilterDataStatus DataTraceLogger::decodeData(Buffer::Instance& data, bool end_st
 FilterDataStatus DataTraceLogger::encodeData(Buffer::Instance& data, bool end_stream) {
     // intercepts the response data
     if (!should_log_) return FilterDataStatus::Continue;
-    if (response_callbacks_ && response_callbacks_->stream()) {
-        Buffer::OwnedImpl cpy{data};
-        response_callbacks_->stream()->sendData(cpy, end_stream);
-    }
+    // if (response_callbacks_ && response_callbacks_->stream()) {
+    //     Buffer::OwnedImpl cpy{data};
+    //     // response_callbacks_->stream()->sendData(cpy, end_stream);
+    // }
     if (!end_stream) {
         auto& active_span = encoder_callbacks_->activeSpan();
         if (response_stream_fragment_count_ < MAX_REQUEST_OR_RESPONSE_TAGS) {
