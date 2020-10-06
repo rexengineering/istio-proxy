@@ -4,6 +4,8 @@
 #include "data_trace_logger.h"
 #include "test/integration/http_integration.h"
 #include "test/integration/utility.h"
+#include "test/common/upstream/utility.h"
+#include "envoy/upstream/cluster_manager.h"
 #include "common/common/base64.h"
 
 namespace Envoy {
@@ -14,7 +16,7 @@ namespace Tracing {
 class DtlFilterTest : public testing::Test {
  public:
   std::unique_ptr<DataTraceLogger> makeDtlOverrideFilter() {
-    auto filter = std::make_unique<DataTraceLogger>();
+    auto filter = std::make_unique<DataTraceLogger>(cluster_manager_);
     filter->setEncoderFilterCallbacks(encoder_callbacks_);
     filter->setDecoderFilterCallbacks(decoder_callbacks_);
     return filter;
@@ -22,6 +24,7 @@ class DtlFilterTest : public testing::Test {
  protected:
    NiceMock<Http::MockStreamEncoderFilterCallbacks> encoder_callbacks_;
    NiceMock<Http::MockStreamDecoderFilterCallbacks> decoder_callbacks_;
+   NiceMock<Upstream::MockClusterManager> cluster_manager_;
 };
 
 
@@ -62,7 +65,8 @@ TEST_F(DtlFilterTest, SimpleEncodeHeaders) {
   std::map<std::string, std::string> hdrs_map;
   hdrs_map["foo"] = "bar";
   Http::TestRequestHeaderMapImpl hdrs = createRequestHeaders(hdrs_map);
-  EXPECT_EQ(FilterHeadersStatus::Continue, filter->decodeHeaders(hdrs, false));
+  EXPECT_EQ(FilterHeadersStatus::Continue, filter->decodeHeaders(hdrs, true));  // end_stream = true
+                                                                                // so we don't call initializeStream
 };
 
 TEST_F(DtlFilterTest, SimpleDecodeHeaders) {
@@ -70,7 +74,7 @@ TEST_F(DtlFilterTest, SimpleDecodeHeaders) {
   std::map<std::string, std::string> hdrs_map;
   hdrs_map["foo"] = "bar";
   Http::TestResponseHeaderMapImpl hdrs = createRequestHeaders(hdrs_map);
-  EXPECT_EQ(FilterHeadersStatus::Continue, filter->encodeHeaders(hdrs, false));
+  EXPECT_EQ(FilterHeadersStatus::Continue, filter->encodeHeaders(hdrs, true));
 }
 
 /**
@@ -225,7 +229,6 @@ TEST_F(DtlFilterTest, LargeStringResponse) {
 
 TEST_F(DtlFilterTest, BinaryDecodeDataMulti) {
   auto filter = makeDtlOverrideFilter();
-  // NiceMock<Envoy::Tracing::MockSpan> mock_span_;
   auto *span = new testing::NiceMock<Envoy::Tracing::MockSpan>();
 
   ON_CALL(decoder_callbacks_, activeSpan()).WillByDefault([&, span]() -> Envoy::Tracing::Span& {
@@ -249,7 +252,6 @@ TEST_F(DtlFilterTest, BinaryDecodeDataMulti) {
 
 TEST_F(DtlFilterTest, BinaryEncodeDataMulti) {
   auto filter = makeDtlOverrideFilter();
-  // NiceMock<Envoy::Tracing::MockSpan> mock_span_;
   auto *span = new testing::NiceMock<Envoy::Tracing::MockSpan>();
 
   ON_CALL(encoder_callbacks_, activeSpan()).WillByDefault([&, span]() -> Envoy::Tracing::Span& {
