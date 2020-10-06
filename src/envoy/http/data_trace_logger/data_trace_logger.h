@@ -50,8 +50,6 @@ namespace Http {
 #define S3_UPLOADER_HOST "s3-uploader:9080"
 #define DTL_FILTER_S3_DONTTRACEME "donttraceme"
 
-class DummyCb;
-
 class DataTraceLogger : public PassThroughFilter, public Logger::Loggable<Logger::Id::filter> {
 private:
     void dumpHeaders(RequestOrResponseHeaderMap& headers, std::string span_tag);
@@ -63,7 +61,8 @@ private:
     Upstream::ClusterManager& cluster_manager_;
 
     bool should_log_;
-    DummyCb* callbacks_;
+    std::string req_cb_key_;
+    std::string res_cb_key_;
 public:
     DataTraceLogger(Upstream::ClusterManager& cm) : request_stream_fragment_count_(0),
         response_stream_fragment_count_(0), cluster_manager_(cm) {
