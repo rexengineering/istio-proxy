@@ -58,9 +58,9 @@ class DataTraceLoggerConfig : public Extensions::HttpFilters::Common::EmptyHttpF
 public:
     DataTraceLoggerConfig() : EmptyHttpFilterConfig("data_trace_logger") {}
 
-    Http::FilterFactoryCb createFilter(const std::string&, Server::Configuration::FactoryContext&) {
-        return [](Http::FilterChainFactoryCallbacks& callbacks) -> void {
-            callbacks.addStreamFilter(std::make_shared<Envoy::Http::DataTraceLogger>());
+    Http::FilterFactoryCb createFilter(const std::string&, Server::Configuration::FactoryContext& context) {
+        return [&context](Http::FilterChainFactoryCallbacks& callbacks) -> void {
+            callbacks.addStreamFilter(std::make_shared<Envoy::Http::DataTraceLogger>(context.clusterManager()));
         };
     }
 };
