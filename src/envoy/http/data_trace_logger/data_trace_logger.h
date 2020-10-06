@@ -45,8 +45,7 @@ namespace Http {
 // Don't trace requests to the S3 storage service.
 #define DTL_FILTER_S3_HEADER "x-rextrace-is-s3-request"
 #define S3_KEY_HEADER "x-rextrace-s3-object-key"
-//#define S3_UPLOADER_CLUSTER "outbound|9080||s3-uploader.default.svc.cluster.local"
-#define S3_UPLOADER_CLUSTER "outbound|9080||svc-four.default.svc.cluster.local"
+#define S3_UPLOADER_CLUSTER "outbound|9080||s3-uploader.default.svc.cluster.local"
 #define S3_UPLOADER_HOST "s3-uploader:9080"
 #define DTL_FILTER_S3_DONTTRACEME "donttraceme"
 
@@ -67,11 +66,8 @@ public:
     DataTraceLogger(Upstream::ClusterManager& cm) : request_stream_fragment_count_(0),
         response_stream_fragment_count_(0), cluster_manager_(cm) {
                 srand(time(NULL));
-                std::cout << "DataTraceLogger ctor " << this << std::endl;
-        };
-    ~DataTraceLogger() {
-        std::cout << "DataTraceLogger dtor " << this << std::endl;
-    }
+    };
+    ~DataTraceLogger() {}
     FilterDataStatus decodeData(Buffer::Instance& data, bool end_stream);
     FilterDataStatus encodeData(Buffer::Instance& data, bool end_stream);
     FilterHeadersStatus decodeHeaders(Http::RequestHeaderMap& headers, bool);

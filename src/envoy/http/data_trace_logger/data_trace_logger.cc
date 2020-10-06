@@ -45,12 +45,9 @@ namespace Http {
 
 class DummyCb : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
 public:
-    ~DummyCb() {
-        std::cout << "DummyCb dtor " << this << std::endl;
-    }
+    ~DummyCb() {}
     DummyCb(std::string id, std::unique_ptr<RequestHeaderMapImpl> headers, Upstream::ClusterManager& cm) 
         : id_(id), headers_(std::move(headers)), cluster_manager_(cm) {
-        std::cout << "DummyCb ctor " << this << std::endl;
         cluster_manager_.storeCallbacksAndHeaders(id, this);
     }
 
@@ -60,7 +57,6 @@ public:
     void onReset() override {}
     void onComplete() override {
         // remove ourself from the clusterManager
-        std::cout << "DummyCb::onComplete " << id_ << std::endl;
         cluster_manager_.eraseCallbacksAndHeaders(id_);
     }
     Http::RequestHeaderMapImpl& requestHeaderMap() override {
@@ -91,10 +87,6 @@ private:
     std::string response_key_;
 
 };
-
-// static DummyStreamCB stream_callbacks_;
-// static std::unique_ptr<Http::RequestHeaderMapImpl> request_headers_1_;  // id
-// static std::unique_ptr<Http::RequestHeaderMapImpl> request_headers_2_;
 
 void DataTraceLogger::dumpHeaders(RequestOrResponseHeaderMap& headers, std::string span_tag) {
     std::vector<std::string> vals;
@@ -135,9 +127,6 @@ void DataTraceLogger::logBufferInstance(Buffer::Instance& data, Tracing::Span& a
         std::string tag_key = tag_name + std::to_string(stream_fragment_count);
         active_span.setTag(tag_key, data_chunk);
         bytes_written += cur_tag_length;
-
-        // I believe this is a no-op.
-        ENVOY_LOG(debug, "encodeData(): {}", data_str);
     }
 }
 
@@ -150,7 +139,8 @@ FilterDataStatus DataTraceLogger::decodeData(Buffer::Instance& data, bool end_st
         Buffer::OwnedImpl cpy{data};
         cb->requestStream()->sendData(cpy, end_stream);
     } else {
-        std::cout << "These are not the droids your're trying to request from" << std::endl;
+        std::cout << "These are not the droids you're trying to trace" << std::endl;
+        decoder_callbacks_->activeSpan().setTag("request_s3_key", "Unable to store requests data");
     }
 
     if (!end_stream) {
@@ -171,7 +161,8 @@ FilterDataStatus DataTraceLogger::encodeData(Buffer::Instance& data, bool end_st
         Buffer::OwnedImpl cpy{data};
         cb->responseStream()->sendData(cpy, end_stream);
     } else {
-        std::cout << "These are not the droids your're trying to respond to" << std::endl;
+        std::cout << "These are not the droids you're trying to trace" << std::endl;
+        encoder_callbacks_->activeSpan().setTag("response_s3_key", "Unable to store response data");
     }
 
     if (!end_stream) {
@@ -209,7 +200,6 @@ void DataTraceLogger::initializeStream(Http::RequestOrResponseHeaderMap&, std::s
 
     Runtime::RandomGeneratorImpl rng;
     std::string s3_object_key = rng.uuid();
-    std::cout << "DataTraceLogger::initializeStream " << type << ' ' << s3_object_key << std::endl;
 
     std::unique_ptr<RequestHeaderMapImpl> s3_headers = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
         {
@@ -221,40 +211,26 @@ void DataTraceLogger::initializeStream(Http::RequestOrResponseHeaderMap&, std::s
             {Http::LowerCaseString(S3_KEY_HEADER), s3_object_key}
         }
     );
-    std::cout << s3_object_key << " created s3_headers" << std::endl;
     Envoy::Tracing::Span& active_span = decoder_callbacks_->activeSpan();
     active_span.injectContext(*(s3_headers.get()));  // Show this request on the same span
     active_span.setTag(type + "_s3_key", s3_object_key);  // let the eng know where to find data in s3
 
-    //std::map<std::string, std::unique_ptr<Upstream::AsyncStreamCallbacksAndHeaders>> &storage_map = cluster_manager_.httpRequestStorageMap();  
-
     DummyCb* callbacks = new DummyCb(s3_object_key, std::move(s3_headers), cluster_manager_);
 
-    // we now start modifying the map, so we need to lock it
-    //std::lock_guard<std::mutex> lock(cluster_manager_.httpRequestStorageMutex());
-
-    // important to move over the callbacks BEFORE we send headers, otherwise onData() could trigger before the 
-    // callbacks are in the map. That would cause all kinds of issues.
-    //storage_map[s3_object_key] = std::move(callbacks);
-
     if (type == "request") {
-        std::cout << s3_object_key << " start sending request" << std::endl;
         req_cb_key_ = s3_object_key;
         callbacks->setRequestStream( cluster_manager_.httpAsyncClientForCluster(S3_UPLOADER_CLUSTER).start(
             *callbacks, AsyncClient::StreamOptions())
         );
         callbacks->requestStream()->sendHeaders(callbacks->requestHeaderMap(), false);
         callbacks->setRequestKey(s3_object_key);
-        std::cout << s3_object_key << " done sending request" << std::endl;
     } else {
-        std::cout << s3_object_key << " start sending response" << std::endl;
         res_cb_key_ = s3_object_key;
         callbacks->setResponseStream(cluster_manager_.httpAsyncClientForCluster(S3_UPLOADER_CLUSTER).start(
             *callbacks, AsyncClient::StreamOptions())
         );
         callbacks->responseStream()->sendHeaders(callbacks->requestHeaderMap(), false);
         callbacks->setResponseKey(s3_object_key);
-        std::cout << s3_object_key << " stop sending response" << std::endl;
     }
 }
 
