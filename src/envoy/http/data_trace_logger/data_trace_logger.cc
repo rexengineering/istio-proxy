@@ -89,7 +89,6 @@ private:
 };
 
 void DataTraceLogger::dumpHeaders(RequestOrResponseHeaderMap& headers, std::string span_tag) {
-    std::vector<std::string> vals;
     std::stringstream ss;
     headers.iterate(
         [](const HeaderEntry& header, void* context) -> HeaderMap::Iterate {
@@ -174,29 +173,41 @@ FilterDataStatus DataTraceLogger::encodeData(Buffer::Instance& data, bool end_st
     return FilterDataStatus::Continue;
 }
 
-FilterHeadersStatus DataTraceLogger::decodeHeaders(Http::RequestHeaderMap& headers, bool) {
+FilterHeadersStatus DataTraceLogger::decodeHeaders(Http::RequestHeaderMap& headers, bool end_stream) {
     // intercepts the request headers.
     const Http::HeaderEntry* entry = headers.get(Http::LowerCaseString(DTL_FILTER_S3_HEADER));
     should_log_ = ((entry == NULL) || (entry->value() != DTL_FILTER_S3_DONTTRACEME));
     dumpHeaders(headers, "request_headers");
-    if (should_log_) {
+    if (should_log_ && !end_stream) {
         initializeStream(headers, "request");
     }
 
     return FilterHeadersStatus::Continue;
 }
 
-FilterHeadersStatus DataTraceLogger::encodeHeaders(Http::ResponseHeaderMap& headers, bool) {
+FilterHeadersStatus DataTraceLogger::encodeHeaders(Http::ResponseHeaderMap& headers, bool end_stream) {
     // intercepts the Response headers.
     dumpHeaders(headers, "response_headers");
-
-    if (should_log_) initializeStream(headers, "response");
-
+    if (should_log_ && !end_stream) {
+        initializeStream(headers, "response");
+    }
     return FilterHeadersStatus::Continue;
 }
 
-void DataTraceLogger::initializeStream(Http::RequestOrResponseHeaderMap&, std::string type) {
+/**
+ * Initializes AsyncClient::Stream to send a request to the s3-uploader service.
+ * Is a no-op if the headers indicate a small request that can be directly stored into jaeger.
+ * IMPORTANT: precondition: we already know this isn't a header-only request.
+ */
+void DataTraceLogger::initializeStream(Http::RequestOrResponseHeaderMap& hdrs, std::string type) {
     assert(type == "request" || type == "response");
+
+    // Only trace LARGE requests (bigger than MAX_REQUEST_SPAN_DATA_SIZE). Otherwise, leave
+    // callbacks_ as a nullptr and return.
+    const Http::HeaderEntry* entry = hdrs.get(Headers::get().ContentLength);
+    if (entry && atoi(std::string(entry->value().getStringView()).c_str()) < MAX_REQUEST_SPAN_DATA_SIZE) {
+        return;
+    }
 
     Runtime::RandomGeneratorImpl rng;
     std::string s3_object_key = rng.uuid();
