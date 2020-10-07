@@ -24,8 +24,6 @@
 #include "extensions/filters/http/common/pass_through_filter.h"
 #include "common/http/header_map_impl.h"
 #include "common/common/base64.h"
-#include "data_trace_logger.h"
-
 
 namespace Envoy {
 namespace Http {
@@ -75,7 +73,7 @@ namespace Http {
 // which is exactly what we're trying to avoid.
 #define TIMEOUT_MS 9000
 
-class DummyCb;
+//class DummyCb;
 
 class DataTraceLogger : public PassThroughFilter, public Logger::Loggable<Logger::Id::filter> {
 private:
@@ -102,50 +100,50 @@ public:
     FilterHeadersStatus encodeHeaders(Http::ResponseHeaderMap& headers, bool);
 };
 
-class DummyCb : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
-public:
-    ~DummyCb() {}
-    DummyCb(std::string id, std::unique_ptr<RequestHeaderMapImpl> headers, Upstream::ClusterManager& cm) 
-        : id_(id), headers_(std::move(headers)), cluster_manager_(cm) {
-        cluster_manager_.storeCallbacksAndHeaders(id, this);
-    }
+// class DummyCb : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
+// public:
+//     ~DummyCb() {}
+//     DummyCb(std::string id, std::unique_ptr<RequestHeaderMapImpl> headers, Upstream::ClusterManager& cm) 
+//         : id_(id), headers_(std::move(headers)), cluster_manager_(cm) {
+//         cluster_manager_.storeCallbacksAndHeaders(id, this);
+//     }
 
-    void onHeaders(ResponseHeaderMapPtr&&, bool) override {}
-    void onData(Buffer::Instance&, bool) override {}
-    void onTrailers(ResponseTrailerMapPtr&&) override {}
-    void onReset() override {}
-    void onComplete() override {
-        // remove ourself from the clusterManager
-        cluster_manager_.eraseCallbacksAndHeaders(id_);
-    }
-    Http::RequestHeaderMapImpl& requestHeaderMap() override {
-        return *(headers_.get());
-    }
+//     void onHeaders(ResponseHeaderMapPtr&&, bool) override {}
+//     void onData(Buffer::Instance&, bool) override {}
+//     void onTrailers(ResponseTrailerMapPtr&&) override {}
+//     void onReset() override {}
+//     void onComplete() override {
+//         // remove ourself from the clusterManager
+//         cluster_manager_.eraseCallbacksAndHeaders(id_);
+//     }
+//     Http::RequestHeaderMapImpl& requestHeaderMap() override {
+//         return *(headers_.get());
+//     }
 
-    void setRequestStream(AsyncClient::Stream* stream) { request_stream_ = stream;}
-    AsyncClient::Stream* requestStream() { return request_stream_; }
+//     void setRequestStream(AsyncClient::Stream* stream) { request_stream_ = stream;}
+//     AsyncClient::Stream* requestStream() { return request_stream_; }
 
-    void setResponseStream(AsyncClient::Stream* stream) { response_stream_ = stream;}
-    AsyncClient::Stream* responseStream() { return response_stream_; }
+//     void setResponseStream(AsyncClient::Stream* stream) { response_stream_ = stream;}
+//     AsyncClient::Stream* responseStream() { return response_stream_; }
 
-    void setRequestKey(std::string& key) { request_key_ = key;}
-    std::string& getRequestKey() { return request_key_;}
+//     void setRequestKey(std::string& key) { request_key_ = key;}
+//     std::string& getRequestKey() { return request_key_;}
 
-    void setResponseKey(std::string& key) { response_key_ = key;}
-    std::string& getResponseKey() { return response_key_;}
+//     void setResponseKey(std::string& key) { response_key_ = key;}
+//     std::string& getResponseKey() { return response_key_;}
 
-private:
-    std::string id_;
-    std::unique_ptr<RequestHeaderMapImpl> headers_;
-    Upstream::ClusterManager& cluster_manager_;
+// private:
+//     std::string id_;
+//     std::unique_ptr<RequestHeaderMapImpl> headers_;
+//     Upstream::ClusterManager& cluster_manager_;
 
-    AsyncClient::Stream* request_stream_;
-    AsyncClient::Stream* response_stream_;
+//     AsyncClient::Stream* request_stream_;
+//     AsyncClient::Stream* response_stream_;
 
-    std::string request_key_;
-    std::string response_key_;
+//     std::string request_key_;
+//     std::string response_key_;
 
-};
+// };
 
 
 } // namespace Http

@@ -17,6 +17,7 @@
 #include "common/http/header_map_impl.h"
 #include "common/common/base64.h"
 #include "data_trace_logger.h"
+#include "common/upstream/cluster_manager_impl.h"
 
 namespace Util {
 /**
@@ -88,7 +89,7 @@ void DataTraceLogger::logBufferInstance(Buffer::Instance& data, Tracing::Span& a
 FilterDataStatus DataTraceLogger::decodeData(Buffer::Instance& data, bool end_stream) {
     // intercepts the request data
     if (!should_log_) return FilterDataStatus::Continue;
-    DummyCb* cb = static_cast<DummyCb*>(cluster_manager_.getCallbacksAndHeaders(req_cb_key_));
+    Upstream::CallbacksAndHeaders* cb = static_cast<Upstream::CallbacksAndHeaders*>(cluster_manager_.getCallbacksAndHeaders(req_cb_key_));
     if (cb && cb->requestStream()) {
         Buffer::OwnedImpl cpy{data};
         cb->requestStream()->sendData(cpy, end_stream);
@@ -109,7 +110,7 @@ FilterDataStatus DataTraceLogger::decodeData(Buffer::Instance& data, bool end_st
 FilterDataStatus DataTraceLogger::encodeData(Buffer::Instance& data, bool end_stream) {
     // intercepts the response data
     if (!should_log_) return FilterDataStatus::Continue;
-    DummyCb* cb = static_cast<DummyCb*>(cluster_manager_.getCallbacksAndHeaders(res_cb_key_));
+    Upstream::CallbacksAndHeaders* cb = static_cast<Upstream::CallbacksAndHeaders*>(cluster_manager_.getCallbacksAndHeaders(res_cb_key_));
 
     if (cb && cb->responseStream()) {
         Buffer::OwnedImpl cpy{data};
@@ -181,7 +182,7 @@ void DataTraceLogger::initializeStream(Http::RequestOrResponseHeaderMap& hdrs, s
     active_span.injectContext(*(s3_headers.get()));  // Show this request on the same span
     active_span.setTag(type + "_s3_key", s3_object_key);  // let the eng know where to find data in s3
 
-    DummyCb* callbacks = new DummyCb(s3_object_key, std::move(s3_headers), cluster_manager_);
+    Upstream::CallbacksAndHeaders* callbacks = new Upstream::CallbacksAndHeaders(s3_object_key, std::move(s3_headers), cluster_manager_);
 
     if (type == "request") {
         req_cb_key_ = s3_object_key;
