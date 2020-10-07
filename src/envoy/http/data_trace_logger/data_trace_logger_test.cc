@@ -12,6 +12,28 @@ namespace Envoy {
 namespace Http {
 namespace Tracing {
 
+class MockDummyCb : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
+public:
+    ~MockDummyCb() {}
+    MockDummyCb(std::string, std::unique_ptr<RequestHeaderMapImpl>, Upstream::ClusterManager&) {};
+    MockDummyCb() {};
+
+    MOCK_METHOD(void, onHeaders, (ResponseHeaderMapPtr&&, bool));
+    MOCK_METHOD(void, onData, (Buffer::Instance&, bool));
+    MOCK_METHOD(void, onTrailers, (ResponseTrailerMapPtr&&));
+    MOCK_METHOD(void, onReset, (), (override));
+    MOCK_METHOD(void, onComplete, () ,(override));
+    MOCK_METHOD(Http::RequestHeaderMapImpl&, requestHeaderMap, ());
+    MOCK_METHOD(void, setRequestStream, (AsyncClient::Stream* stream));
+    MOCK_METHOD(AsyncClient::Stream*, requestStream, ());
+    MOCK_METHOD(void, setResponseStream, (AsyncClient::Stream* stream));
+    MOCK_METHOD(AsyncClient::Stream*, responseStream, ());
+    MOCK_METHOD(void, setRequestKey, (std::string& key));
+    MOCK_METHOD(std::string&, getRequestKey, ());
+    MOCK_METHOD(void, setResponseKey, (std::string& key));
+    MOCK_METHOD(std::string&, getResponseKey, ());
+};
+
 
 class DtlFilterTest : public testing::Test {
  public:
@@ -272,6 +294,64 @@ TEST_F(DtlFilterTest, BinaryEncodeDataMulti) {
 
   testing::Mock::AllowLeak(span);
 }
+
+TEST_F(DtlFilterTest, S3Upload) {
+  auto filter = makeDtlOverrideFilter();
+  auto *span = new testing::NiceMock<Envoy::Tracing::MockSpan>();
+  auto *cb = new testing::NiceMock<MockDummyCb>();
+  auto *stream = new testing::NiceMock<MockAsyncClientStream>();
+
+  ON_CALL(encoder_callbacks_, activeSpan()).WillByDefault([&, span]() -> Envoy::Tracing::Span& {
+    return *span;
+  });
+
+  ON_CALL(cluster_manager_, getCallbacksAndHeaders).WillByDefault([&, cb](std::string& ) -> Upstream::AsyncStreamCallbacksAndHeaders* {
+    return static_cast<Upstream::AsyncStreamCallbacksAndHeaders*>(cb);
+  });
+
+  ON_CALL(*cb, requestStream).WillByDefault([&, stream]() -> Http::AsyncClient::Stream* {
+    return stream;
+  });
+
+  std::string data_to_send = "I'm Hong's Padawan";
+
+  ON_CALL(*stream, sendData).WillByDefault([&, data_to_send](Buffer::Instance& data, bool end_stream) -> void {
+    EXPECT_EQ(data_to_send, data.toString());
+    EXPECT_EQ(false, end_stream);
+    data.drain(data.length()); // because sendData drains buffer.
+  });
+
+  Buffer::OwnedImpl data_buf(data_to_send);
+  EXPECT_EQ(FilterDataStatus::Continue, filter->encodeData(data_buf, false));
+  EXPECT_EQ(data_buf.length(), data_to_send.length()); // Make sure data isn't overwritten.
+
+  testing::Mock::AllowLeak(span);
+  testing::Mock::AllowLeak(stream);
+  testing::Mock::AllowLeak(cb);
+}
+
+// Test what happens when DummyCb is null
+TEST_F(DtlFilterTest, EnsureNoCrash) {
+  auto filter = makeDtlOverrideFilter();
+  auto *span = new testing::NiceMock<Envoy::Tracing::MockSpan>();
+
+  ON_CALL(encoder_callbacks_, activeSpan()).WillByDefault([&, span]() -> Envoy::Tracing::Span& {
+    return *span;
+  });
+
+  ON_CALL(cluster_manager_, getCallbacksAndHeaders).WillByDefault([](std::string& ) -> Upstream::AsyncStreamCallbacksAndHeaders* {
+    return nullptr;
+  });
+
+  std::string data_to_send = "I'm Hong's Padawan";
+
+  Buffer::OwnedImpl data_buf(data_to_send);
+  EXPECT_EQ(FilterDataStatus::Continue, filter->encodeData(data_buf, false));
+  EXPECT_EQ(data_buf.length(), data_to_send.length()); // Make sure data isn't overwritten.
+
+  testing::Mock::AllowLeak(span);
+}
+
 
 } // Namespace Tracing
 } // Namespace Http
