@@ -134,12 +134,7 @@ FilterHeadersStatus DataTraceLogger::decodeHeaders(Http::RequestHeaderMap& heade
     should_log_ = ((entry == NULL) || (entry->value() != DTL_FILTER_S3_DONTTRACEME));
     dumpHeaders(headers, "request_headers");
     if (should_log_ && !end_stream) {
-<<<<<<< HEAD
-        std::cout << "enter initializeStream" << std::endl;
-=======
->>>>>>> rex/cm/rex-trace
         initializeStream(headers, "request");
-        std::cout << "exit initializeStream" << std::endl;
     }
 
     return FilterHeadersStatus::Continue;
@@ -148,15 +143,9 @@ FilterHeadersStatus DataTraceLogger::decodeHeaders(Http::RequestHeaderMap& heade
 FilterHeadersStatus DataTraceLogger::encodeHeaders(Http::ResponseHeaderMap& headers, bool end_stream) {
     // intercepts the Response headers.
     dumpHeaders(headers, "response_headers");
-<<<<<<< HEAD
 
     if (should_log_ && !end_stream) initializeStream(headers, "response");
 
-=======
-    if (should_log_ && !end_stream) {
-        initializeStream(headers, "response");
-    }
->>>>>>> rex/cm/rex-trace
     return FilterHeadersStatus::Continue;
 }
 
