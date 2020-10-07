@@ -44,7 +44,6 @@ namespace Envoy {
 namespace Http {
 
 void DataTraceLogger::dumpHeaders(RequestOrResponseHeaderMap& headers, std::string span_tag) {
-    std::vector<std::string> vals;
     std::stringstream ss;
     headers.iterate(
         [](const HeaderEntry& header, void* context) -> HeaderMap::Iterate {
@@ -135,7 +134,10 @@ FilterHeadersStatus DataTraceLogger::decodeHeaders(Http::RequestHeaderMap& heade
     should_log_ = ((entry == NULL) || (entry->value() != DTL_FILTER_S3_DONTTRACEME));
     dumpHeaders(headers, "request_headers");
     if (should_log_ && !end_stream) {
+<<<<<<< HEAD
         std::cout << "enter initializeStream" << std::endl;
+=======
+>>>>>>> rex/cm/rex-trace
         initializeStream(headers, "request");
         std::cout << "exit initializeStream" << std::endl;
     }
@@ -146,14 +148,32 @@ FilterHeadersStatus DataTraceLogger::decodeHeaders(Http::RequestHeaderMap& heade
 FilterHeadersStatus DataTraceLogger::encodeHeaders(Http::ResponseHeaderMap& headers, bool end_stream) {
     // intercepts the Response headers.
     dumpHeaders(headers, "response_headers");
+<<<<<<< HEAD
 
     if (should_log_ && !end_stream) initializeStream(headers, "response");
 
+=======
+    if (should_log_ && !end_stream) {
+        initializeStream(headers, "response");
+    }
+>>>>>>> rex/cm/rex-trace
     return FilterHeadersStatus::Continue;
 }
 
-void DataTraceLogger::initializeStream(Http::RequestOrResponseHeaderMap&, std::string type) {
+/**
+ * Initializes AsyncClient::Stream to send a request to the s3-uploader service.
+ * Is a no-op if the headers indicate a small request that can be directly stored into jaeger.
+ * IMPORTANT: precondition: we already know this isn't a header-only request.
+ */
+void DataTraceLogger::initializeStream(Http::RequestOrResponseHeaderMap& hdrs, std::string type) {
     assert(type == "request" || type == "response");
+
+    // Only trace LARGE requests (bigger than MAX_REQUEST_SPAN_DATA_SIZE). Otherwise, leave
+    // callbacks_ as a nullptr and return.
+    const Http::HeaderEntry* entry = hdrs.get(Headers::get().ContentLength);
+    if (entry && atoi(std::string(entry->value().getStringView()).c_str()) < MAX_REQUEST_SPAN_DATA_SIZE) {
+        return;
+    }
 
     Runtime::RandomGeneratorImpl rng;
     std::string s3_object_key = rng.uuid();
