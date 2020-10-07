@@ -9,6 +9,7 @@
 #include "envoy/http/filter.h"
 #include "envoy/registry/registry.h"
 #include "envoy/server/filter_config.h"
+#include "common/runtime/runtime_impl.h"
 
 #include "extensions/filters/http/common/pass_through_filter.h"
 #include "common/http/header_map_impl.h"
@@ -16,7 +17,7 @@
 #include "common/common/base64.h"
 #include "bavs.h"
 #include "envoy/upstream/cluster_manager.h"
-
+#include "common/upstream/cluster_manager_impl.h"
 
 #include <typeinfo>
 #include <future>
@@ -27,34 +28,6 @@
 
 namespace Envoy {
 namespace Http {
-
-class DummyStreamCB : public AsyncClient::StreamCallbacks {
-    // virtual void onHeaders(ResponseHeaderMapPtr&&, bool end_stream) {
-    virtual void onHeaders(ResponseHeaderMapPtr&&, bool) {
-        std::cout << "StreamCallback::onHeaders" << std::endl;
-    }
-
-    // virtual void onData(Buffer::Instance& data, bool end_stream) {
-    virtual void onData(Buffer::Instance& data, bool) {
-        std::cout << "StreamCallback::onData:\n" << data.toString() << std::endl;
-    }
-
-    // virtual void onTrailers(ResponseTrailerMapPtr&& trailers) {
-    virtual void onTrailers(ResponseTrailerMapPtr&&) {
-        std::cout << "StreamCallback::onTrailers" << std::endl;
-    }
-
-    virtual void onComplete() {
-        std::cout << "StreamCallback::onComplete" << std::endl;
-    }
-
-    virtual void onReset() {
-        std::cout << "StreamCallback::onReset" << std::endl;
-    }
-};
-
-static DummyStreamCB stream_callbacks_;
-static std::unique_ptr<Http::RequestHeaderMapImpl> request_headers_;
 
 FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, bool) {
     const Http::HeaderEntry* entry = headers.get(Http::LowerCaseString("decisionpoint"));
@@ -96,8 +69,11 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
 
     const auto vsr = next_cluster_map[std::to_string(decisionpoint_id_ + 1)];
 
+    Runtime::RandomGeneratorImpl rng;
+    req_cb_key_ = rng.uuid();
+
     // Create headers to send over to the next place.
-    request_headers_ = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
+    std::unique_ptr<RequestHeaderMapImpl> request_headers = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
         {
             {Http::Headers::get().Method, vsr.getMethod()},
             {Http::Headers::get().Host, "bavs-host:9881"},
@@ -110,11 +86,17 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
 
     // Inject tracing context
     Envoy::Tracing::Span& active_span = encoder_callbacks_->activeSpan();
-    active_span.injectContext(*(request_headers_.get()));
+    active_span.injectContext(*(request_headers.get()));
 
     std::string cluster = vsr.getCluster();
-    stream_ = cluster_manager_.httpAsyncClientForCluster(cluster).start(stream_callbacks_, AsyncClient::StreamOptions());
-    stream_->sendHeaders(*request_headers_.get(), end_stream);
+
+    Upstream::CallbacksAndHeaders* callbacks = new Upstream::CallbacksAndHeaders(req_cb_key_, std::move(request_headers), cluster_manager_);
+
+    callbacks->setRequestStream(cluster_manager_.httpAsyncClientForCluster(cluster).start(
+        *callbacks, AsyncClient::StreamOptions())
+    );
+    callbacks->requestStream()->sendHeaders(callbacks->requestHeaderMap(), end_stream);
+    callbacks->setRequestKey(req_cb_key_);
 
     std::cout << "encodeHeaders exit" << std::endl;
     return FilterHeadersStatus::Continue;
@@ -129,9 +111,16 @@ FilterDataStatus BavsFilter::encodeData(Buffer::Instance& data, bool end_stream)
         return FilterDataStatus::Continue;
     }
 
-    // sendData clears out the Buffer::Instance
-    Buffer::OwnedImpl cpy{data};
-    stream_->sendData(cpy, end_stream);
+    Upstream::CallbacksAndHeaders* cb = static_cast<Upstream::CallbacksAndHeaders*>(cluster_manager_.getCallbacksAndHeaders(req_cb_key_));
+
+    if (cb && cb->requestStream()) {
+        Buffer::OwnedImpl cpy{data};
+        // sendData clears out the Buffer::Instance
+        cb->requestStream()->sendData(cpy, end_stream);
+    } else {
+        std::cout << "These are not the droids you're trying to trace" << std::endl;
+        // encoder_callbacks_->activeSpan().setTag("response_s3_key", "Unable to store response data");
+    }
 
     return FilterDataStatus::Continue;
 }
