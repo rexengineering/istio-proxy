@@ -43,6 +43,51 @@ bool is_print(const std::string& s) {
 namespace Envoy {
 namespace Http {
 
+class DummyCb : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
+public:
+    ~DummyCb() {}
+    DummyCb(std::string id, std::unique_ptr<RequestHeaderMapImpl> headers, Upstream::ClusterManager& cm) 
+        : id_(id), headers_(std::move(headers)), cluster_manager_(cm) {
+        cluster_manager_.storeCallbacksAndHeaders(id, this);
+    }
+
+    void onHeaders(ResponseHeaderMapPtr&&, bool) override {}
+    void onData(Buffer::Instance&, bool) override {}
+    void onTrailers(ResponseTrailerMapPtr&&) override {}
+    void onReset() override {}
+    void onComplete() override {
+        // remove ourself from the clusterManager
+        cluster_manager_.eraseCallbacksAndHeaders(id_);
+    }
+    Http::RequestHeaderMapImpl& requestHeaderMap() override {
+        return *(headers_.get());
+    }
+
+    void setRequestStream(AsyncClient::Stream* stream) { request_stream_ = stream;}
+    AsyncClient::Stream* requestStream() { return request_stream_; }
+
+    void setResponseStream(AsyncClient::Stream* stream) { response_stream_ = stream;}
+    AsyncClient::Stream* responseStream() { return response_stream_; }
+
+    void setRequestKey(std::string& key) { request_key_ = key;}
+    std::string& getRequestKey() { return request_key_;}
+
+    void setResponseKey(std::string& key) { response_key_ = key;}
+    std::string& getResponseKey() { return response_key_;}
+
+private:
+    std::string id_;
+    std::unique_ptr<RequestHeaderMapImpl> headers_;
+    Upstream::ClusterManager& cluster_manager_;
+
+    AsyncClient::Stream* request_stream_;
+    AsyncClient::Stream* response_stream_;
+
+    std::string request_key_;
+    std::string response_key_;
+
+};
+
 void DataTraceLogger::dumpHeaders(RequestOrResponseHeaderMap& headers, std::string span_tag) {
     std::vector<std::string> vals;
     std::stringstream ss;
