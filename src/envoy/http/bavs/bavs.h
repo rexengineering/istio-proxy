@@ -27,15 +27,11 @@ private:
     bool is_workflow_;
     int decisionpoint_id_;
     bool successful_response_;
-    std::unique_ptr<RequestMessageImpl> request_msg_;
-    AsyncClient::Stream* stream_;
-    int body_cnt_;
+    std::string req_cb_key_;
 
 public:
-    BavsFilter(Upstream::ClusterManager& cluster_manager) : cluster_manager_(cluster_manager), is_workflow_(false),
-            successful_response_(true), request_msg_(new RequestMessageImpl), body_cnt_{0} {
-        request_msg_->body().reset(new Buffer::OwnedImpl());
-    };
+    BavsFilter(Upstream::ClusterManager& cluster_manager) 
+    : cluster_manager_(cluster_manager), is_workflow_(false), successful_response_(true) {};
 
     FilterDataStatus decodeData(Buffer::Instance&, bool);
     FilterDataStatus encodeData(Buffer::Instance&, bool);

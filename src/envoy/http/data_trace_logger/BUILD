@@ -14,6 +14,7 @@ envoy_cc_library(
     repository = "@envoy",
     deps = [
     	":data_trace_logger_config",
+        "@envoy//source/common/upstream:cluster_manager_lib",
         "@envoy//source/exe:envoy_common_lib",
         "@envoy//include/envoy/http:filter_interface",
         "@envoy//include/envoy/registry",
