@@ -11,6 +11,7 @@
 #include "extensions/filters/http/common/pass_through_filter.h"
 #include "common/common/base64.h"
 
+#include "src/envoy/http/bavs/bavs.pb.h"
 
 namespace Envoy {
 namespace Http {
@@ -19,19 +20,31 @@ namespace Http {
 //#define BAVS_HOST "http://svc-two:9881"
 #define BAVS_HOST "http://bavs-host:9881"
 
+class BavsFilterConfig {
+public:
+    BavsFilterConfig(const bavs::BAVSFilter& proto_config);
+
+    const std::vector<std::string>& forwards() { return forwards_; }
+
+private:
+    std::vector<std::string> forwards_;
+};
+
+using BavsFilterConfigSharedPtr = std::shared_ptr<BavsFilterConfig>;
+
 class BavsFilter : public PassThroughFilter, public Logger::Loggable<Logger::Id::filter> {
 private:
     void httpCallAtOnce(std::string, int);
     // void saveResponseHeaders(Http::ResponseHeaderMap&);
+    const BavsFilterConfigSharedPtr config_;
     Upstream::ClusterManager& cluster_manager_;
     bool is_workflow_;
-    int decisionpoint_id_;
     bool successful_response_;
-    std::string req_cb_key_;
+    std::vector<std::string> req_cb_keys;
 
 public:
-    BavsFilter(Upstream::ClusterManager& cluster_manager) 
-    : cluster_manager_(cluster_manager), is_workflow_(false), successful_response_(true) {};
+    BavsFilter(BavsFilterConfigSharedPtr config, Upstream::ClusterManager& cluster_manager)
+    : config_(config), cluster_manager_(cluster_manager), is_workflow_(false), successful_response_(true) {};
 
     FilterDataStatus decodeData(Buffer::Instance&, bool);
     FilterDataStatus encodeData(Buffer::Instance&, bool);

@@ -4,16 +4,19 @@ load(
     "envoy_package",
     "envoy_cc_test",
 )
+load("@envoy_api//bazel:api_build_system.bzl", "api_proto_package")
 
 envoy_package()
 
+api_proto_package()
+
 envoy_cc_library(
-    name = "bavs",
+    name = "bavs_lib",
     srcs = ["bavs.cc"],
     hdrs = ["bavs.h"],
     repository = "@envoy",
     deps = [
-    	":bavs_config",
+    	":pkg_cc_proto",
         "@envoy//source/exe:envoy_common_lib",
         "@envoy//include/envoy/http:filter_interface",
         "@envoy//include/envoy/registry",
@@ -28,13 +31,10 @@ envoy_cc_library(
 
 envoy_cc_library(
     name = "bavs_config",
-    hdrs = [
-    	"config.h",
-	    "bavs.h",
-    ],
     srcs = ["config.cc"],
     repository = "@envoy",
     deps = [
+        ":bavs_lib",
         "@envoy//source/extensions/filters/http/common:pass_through_filter_lib",
         "@envoy//include/envoy/server:filter_config_interface",
         "@envoy//include/envoy/registry",
