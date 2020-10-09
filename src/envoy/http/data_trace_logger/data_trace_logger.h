@@ -65,8 +65,8 @@ namespace Http {
 
 // Don't trace requests to the S3 storage service.
 #define DTL_FILTER_S3_HEADER "x-rextrace-is-s3-request"
-#define S3_UPLOADER_CLUSTER "outbound|9080||s3-uploader.default.svc.cluster.local"
-#define S3_UPLOADER_HOST "s3-uploader:9080"
+#define S3_UPLOADER_CLUSTER "outbound|9080||rextrace-s3-uploader.default.svc.cluster.local"
+#define S3_UPLOADER_HOST "rextrace-s3-uploader:9080"
 #define DTL_FILTER_S3_DONTTRACEME "donttraceme"
 
 // How long to wait for "200" response from s3-uploader service.
