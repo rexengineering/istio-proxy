@@ -54,7 +54,7 @@ namespace Http {
  * span data at 1MB per span. Anytime there's a larger request, we will stream the data
  * to a service that writes it to s3.
  */
-#define MAX_SPAN_DATA_SIZE 0x100000
+#define MAX_SPAN_DATA_SIZE 0x20000
 #define MAX_REQUEST_SPAN_DATA_SIZE MAX_SPAN_DATA_SIZE / 2
 #define MAX_RESPONSE_SPAN_DATA_SIZE MAX_SPAN_DATA_SIZE / 2
 // For code simplicity:
