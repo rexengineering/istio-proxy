@@ -34,13 +34,17 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
     for (auto iter=proto_config.forwards().begin();
          iter != proto_config.forwards().end();
          iter++) {
-        forwards_.push_back(*iter);
+        UpstreamConfigSharedPtr forwardee(
+            std::make_shared<UpstreamConfig>(UpstreamConfig(*iter))
+        );
+        forwards_.push_back(forwardee);
     }
 }
 
 FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, bool) {
     const Http::HeaderEntry* entry = headers.get(Http::LowerCaseString("x-flow-id"));
     if ((entry != NULL) && (entry->value() != NULL)) {
+        flow_id_ = std::string(entry->value().getStringView());
         is_workflow_ = true;
         std::cout << "is_workflow is true" << std::endl;
     }
@@ -72,15 +76,30 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
     }
 
     if (req_cb_keys.empty()) {
+        const Http::HeaderEntry* entry(headers.get(Http::Headers::get().ContentType));
+        // FIXME:  The following assumes JSON content if it can't find a content
+        // type in the initial batch of headers.  What if content type is sent in
+        // a later invocation of encodeHeaders()?
+        std::string content_type(
+            ((entry != NULL) && (entry->value() != NULL)) ?
+                entry->value().getStringView() :
+                "application/json"
+        );
         req_cb_keys.reserve(config_->forwards().size());
         Runtime::RandomGeneratorImpl rng;
         for (auto iter = config_->forwards().begin(); iter != config_->forwards().end(); iter++) {
+            const UpstreamConfig& upstream(**iter);
             std::string req_cb_key = rng.uuid();
 
             // Create headers to send over to the next place.
             std::unique_ptr<RequestHeaderMapImpl> request_headers = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
                 {
-                    // TODO: Create headers based on forwards configuration.
+                    {Http::Headers::get().Method, upstream.method()},
+                    {Http::Headers::get().Host, upstream.host() + std::to_string(upstream.port())},
+                    {Http::Headers::get().Path, upstream.path()},
+                    {Http::Headers::get().ContentType, content_type},
+                    {Http::Headers::get().ContentLength, std::string(headers.getContentLengthValue())},
+                    {Http::LowerCaseString("x-flow-id"), flow_id_},
                 }
             );
 
@@ -88,9 +107,11 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
             Envoy::Tracing::Span& active_span = encoder_callbacks_->activeSpan();
             active_span.injectContext(*(request_headers.get()));
 
-            Upstream::CallbacksAndHeaders* callbacks = new Upstream::CallbacksAndHeaders(req_cb_key, std::move(request_headers), cluster_manager_);
+            Upstream::CallbacksAndHeaders* callbacks(
+                new Upstream::CallbacksAndHeaders(req_cb_key, std::move(request_headers), cluster_manager_)
+            );
 
-            callbacks->setRequestStream(cluster_manager_.httpAsyncClientForCluster(*iter).start(
+            callbacks->setRequestStream(cluster_manager_.httpAsyncClientForCluster(upstream.cluster()).start(
                 *callbacks, AsyncClient::StreamOptions())
             );
             callbacks->requestStream()->sendHeaders(callbacks->requestHeaderMap(), end_stream);

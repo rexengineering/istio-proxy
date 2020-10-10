@@ -2,6 +2,15 @@ syntax = "proto3";
 
 package bavs;
 
+message Upstream {
+    string name = 1;
+    string cluster = 2;
+    string host = 3;
+    int32 port = 4;
+    string path = 5;
+    string method = 6;
+}
+
 message BAVSFilter {
-    repeated string forwards = 1;
+    repeated Upstream forwards = 1;
 }

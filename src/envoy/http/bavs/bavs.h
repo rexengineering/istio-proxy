@@ -20,14 +20,39 @@ namespace Http {
 //#define BAVS_HOST "http://svc-two:9881"
 #define BAVS_HOST "http://bavs-host:9881"
 
+class UpstreamConfig {
+public:
+    UpstreamConfig(const bavs::Upstream& proto_config) :
+        name_(proto_config.name()), cluster_(proto_config.cluster()),
+        host_(proto_config.host()), port_(proto_config.port()),
+        path_(proto_config.path()), method_(proto_config.method()) {}
+
+    inline const std::string& name() const { return name_; }
+    inline const std::string& cluster() const { return cluster_; }
+    inline const std::string& host() const { return host_; }
+    inline int port() const { return port_; }
+    inline const std::string& path() const { return path_; }
+    inline const std::string& method() const { return method_; }
+
+private:
+    std::string name_;
+    std::string cluster_;
+    std::string host_;
+    int port_;
+    std::string path_;
+    std::string method_;
+};
+
+using UpstreamConfigSharedPtr = std::shared_ptr<UpstreamConfig>;
+
 class BavsFilterConfig {
 public:
     BavsFilterConfig(const bavs::BAVSFilter& proto_config);
 
-    const std::vector<std::string>& forwards() { return forwards_; }
+    const std::vector<const UpstreamConfigSharedPtr>& forwards() { return forwards_; }
 
 private:
-    std::vector<std::string> forwards_;
+    std::vector<const UpstreamConfigSharedPtr> forwards_;
 };
 
 using BavsFilterConfigSharedPtr = std::shared_ptr<BavsFilterConfig>;
@@ -41,6 +66,7 @@ private:
     bool is_workflow_;
     bool successful_response_;
     std::vector<std::string> req_cb_keys;
+    std::string flow_id_;
 
 public:
     BavsFilter(BavsFilterConfigSharedPtr config, Upstream::ClusterManager& cluster_manager)
