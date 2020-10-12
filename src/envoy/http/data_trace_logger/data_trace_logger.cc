@@ -186,8 +186,9 @@ void DataTraceLogger::initializeStream(Http::RequestOrResponseHeaderMap& hdrs, s
         active_span.setTag(type + "_s3_key", "S3 Collector Service was down.");
         return;
     }
+    if (!client) return;
 
-    if (client && type == "request") {
+    if (type == "request") {
         req_cb_key_ = s3_object_key;
         active_span.setTag("request_s3_key", s3_object_key);  // let the eng know where to find data in s3
         callbacks->setRequestStream(client->start(*callbacks, AsyncClient::StreamOptions()));
@@ -195,8 +196,7 @@ void DataTraceLogger::initializeStream(Http::RequestOrResponseHeaderMap& hdrs, s
             callbacks->requestStream()->sendHeaders(callbacks->requestHeaderMap(), false);
             callbacks->setRequestKey(s3_object_key);
         }
-    }
-    if (client && type == "response") {
+    } else {
         res_cb_key_ = s3_object_key;
         callbacks->setResponseStream(client->start(*callbacks, AsyncClient::StreamOptions()));
         if (callbacks->responseStream()) {
