@@ -5,6 +5,7 @@
 #include <chrono>
 #include <time.h>
 #include <iostream>
+#include <exception>
 #include <stdio.h>
 
 #include "envoy/http/filter.h"
@@ -92,9 +93,6 @@ FilterDataStatus DataTraceLogger::decodeData(Buffer::Instance& data, bool end_st
     if (cb && cb->requestStream()) {
         Buffer::OwnedImpl cpy{data};
         cb->requestStream()->sendData(cpy, end_stream);
-    } else {
-        std::cout << "These are not the droids you're trying to trace" << std::endl;
-        decoder_callbacks_->activeSpan().setTag("request_s3_key", "Unable to store requests data");
     }
 
     if (!end_stream) {
@@ -114,9 +112,6 @@ FilterDataStatus DataTraceLogger::encodeData(Buffer::Instance& data, bool end_st
     if (cb && cb->responseStream()) {
         Buffer::OwnedImpl cpy{data};
         cb->responseStream()->sendData(cpy, end_stream);
-    } else {
-        std::cout << "These are not the droids you're trying to trace" << std::endl;
-        encoder_callbacks_->activeSpan().setTag("response_s3_key", "Unable to store response data");
     }
 
     if (!end_stream) {
@@ -156,11 +151,13 @@ FilterHeadersStatus DataTraceLogger::encodeHeaders(Http::ResponseHeaderMap& head
  */
 void DataTraceLogger::initializeStream(Http::RequestOrResponseHeaderMap& hdrs, std::string type) {
     assert(type == "request" || type == "response");
+    Envoy::Tracing::Span& active_span = decoder_callbacks_->activeSpan();
 
     // Only trace LARGE requests (bigger than MAX_REQUEST_SPAN_DATA_SIZE). Otherwise, leave
     // callbacks_ as a nullptr and return.
     const Http::HeaderEntry* entry = hdrs.get(Headers::get().ContentLength);
     if (entry && atoi(std::string(entry->value().getStringView()).c_str()) < MAX_REQUEST_SPAN_DATA_SIZE) {
+        active_span.setTag(type + "_s3_key", "Did not need to store request data in S3: too small.");
         return;
     }
 
@@ -177,26 +174,36 @@ void DataTraceLogger::initializeStream(Http::RequestOrResponseHeaderMap& hdrs, s
             {Http::LowerCaseString(S3_KEY_HEADER), s3_object_key}
         }
     );
-    Envoy::Tracing::Span& active_span = decoder_callbacks_->activeSpan();
     active_span.injectContext(*(s3_headers.get()));  // Show this request on the same span
-    active_span.setTag(type + "_s3_key", s3_object_key);  // let the eng know where to find data in s3
 
     DummyCb* callbacks = new DummyCb(s3_object_key, std::move(s3_headers), cluster_manager_);
 
-    if (type == "request") {
+    Http::AsyncClient* client = nullptr;
+    try {
+        client = &(cluster_manager_.httpAsyncClientForCluster(S3_UPLOADER_CLUSTER));
+    } catch(const EnvoyException&) {
+        std::cout << "The S3 Uploader is down." << std::endl;
+        active_span.setTag(type + "_s3_key", "S3 Collector Service was down.");
+        return;
+    }
+
+    if (client && type == "request") {
         req_cb_key_ = s3_object_key;
-        callbacks->setRequestStream(cluster_manager_.httpAsyncClientForCluster(S3_UPLOADER_CLUSTER).start(
-            *callbacks, AsyncClient::StreamOptions())
-        );
-        callbacks->requestStream()->sendHeaders(callbacks->requestHeaderMap(), false);
-        callbacks->setRequestKey(s3_object_key);
-    } else {
+        active_span.setTag("request_s3_key", s3_object_key);  // let the eng know where to find data in s3
+        callbacks->setRequestStream(client->start(*callbacks, AsyncClient::StreamOptions()));
+        if (callbacks->requestStream()) {
+            callbacks->requestStream()->sendHeaders(callbacks->requestHeaderMap(), false);
+            callbacks->setRequestKey(s3_object_key);
+        }
+    }
+    if (client && type == "response") {
         res_cb_key_ = s3_object_key;
-        callbacks->setResponseStream(cluster_manager_.httpAsyncClientForCluster(S3_UPLOADER_CLUSTER).start(
-            *callbacks, AsyncClient::StreamOptions())
-        );
-        callbacks->responseStream()->sendHeaders(callbacks->requestHeaderMap(), false);
-        callbacks->setResponseKey(s3_object_key);
+        callbacks->setResponseStream(client->start(*callbacks, AsyncClient::StreamOptions()));
+        if (callbacks->responseStream()) {
+            active_span.setTag("response_s3_key", s3_object_key);  // let the eng know where to find data in s3
+            callbacks->responseStream()->sendHeaders(callbacks->requestHeaderMap(), false);
+            callbacks->setResponseKey(s3_object_key);
+        }
     }
 }
 
