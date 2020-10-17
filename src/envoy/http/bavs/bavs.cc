@@ -30,6 +30,7 @@ namespace Envoy {
 namespace Http {
 
 BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
+    std::cout << "BavsFilterConfig(): proto_config.forwards_size()=" << proto_config.forwards_size() << std::endl;
     forwards_.reserve(proto_config.forwards_size());
     for (auto iter=proto_config.forwards().begin();
          iter != proto_config.forwards().end();
@@ -37,6 +38,7 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
         UpstreamConfigSharedPtr forwardee(
             std::make_shared<UpstreamConfig>(UpstreamConfig(*iter))
         );
+        std::cout << "BavsFilterConfig(): forwardee->name()=" << forwardee->name() << std::endl;
         forwards_.push_back(forwardee);
     }
 }
@@ -116,6 +118,8 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
             );
             callbacks->requestStream()->sendHeaders(callbacks->requestHeaderMap(), end_stream);
             callbacks->setRequestKey(req_cb_key);
+            std::cout << "encodeHeaders(): " << req_cb_key << " -> " << std::to_string(size_t(callbacks)) << std::endl;
+            cluster_manager_.storeCallbacksAndHeaders(req_cb_key, callbacks);
             req_cb_keys.push_back(req_cb_key);
         }
     }
@@ -125,7 +129,7 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
 }
 
 FilterDataStatus BavsFilter::encodeData(Buffer::Instance& data, bool end_stream) {
-    std::cout << "encodeData enter" << std::endl;
+    std::cout << "encodeData(): entered, end_stream=" << std::to_string(end_stream) << std::endl;
 
     // intercepts the response data
     if (!is_workflow_ || !successful_response_) {
@@ -134,18 +138,22 @@ FilterDataStatus BavsFilter::encodeData(Buffer::Instance& data, bool end_stream)
     }
 
     for (auto iter=req_cb_keys.begin(); iter != req_cb_keys.end(); iter++) {
-        Upstream::CallbacksAndHeaders* cb = static_cast<Upstream::CallbacksAndHeaders*>(cluster_manager_.getCallbacksAndHeaders(*iter));
-
-        if (cb && cb->requestStream()) {
-            Buffer::OwnedImpl cpy{data};
-            // sendData clears out the Buffer::Instance
-            cb->requestStream()->sendData(cpy, end_stream);
+        Upstream::CallbacksAndHeaders* cb =
+            static_cast<Upstream::CallbacksAndHeaders*>(
+                cluster_manager_.getCallbacksAndHeaders(*iter));
+        std::cout << "encodeData(): " << *iter << " -> " << std::to_string(size_t(cb)) << std::endl;
+        if (cb != NULL) {
+            Http::AsyncClient::Stream* stream(cb->requestStream());
+            if (stream != NULL) {
+                Buffer::OwnedImpl cpy{data};
+                stream->sendData(cpy, end_stream);
+            } else {
+                std::cout << "NULL HTTP stream pointer!" << std::endl;
+            }
         } else {
-            std::cout << "These are not the droids you're trying to trace" << std::endl;
-            // encoder_callbacks_->activeSpan().setTag("response_s3_key", "Unable to store response data");
+            std::cout << "NULL callback pointer!" << std::endl;
         }
     }
-
     return FilterDataStatus::Continue;
 }
 

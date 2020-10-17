@@ -29,6 +29,13 @@ public:
   Http::FilterFactoryCb createFilterFactoryFromProto(const Protobuf::Message& proto_config,
                                                      const std::string&,
                                                      Config::FactoryContext& context) override {
+    std::string proto_config_json;
+    google::protobuf::util::JsonPrintOptions opts;
+    opts.add_whitespace = true;
+    opts.always_print_primitive_fields = true;
+    opts.preserve_proto_field_names = true;
+    google::protobuf::util::MessageToJsonString(proto_config, &proto_config_json, opts);
+    std::cout << proto_config_json << std::endl;
     return createFilter(
       Envoy::MessageUtil::downcastAndValidate<const bavs::BAVSFilter&>(
         proto_config, context.messageValidationVisitor()),
