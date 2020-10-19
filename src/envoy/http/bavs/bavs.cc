@@ -97,11 +97,11 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
             std::unique_ptr<RequestHeaderMapImpl> request_headers = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
                 {
                     {Http::Headers::get().Method, upstream.method()},
-                    {Http::Headers::get().Host, upstream.host() + std::to_string(upstream.port())},
+                    {Http::Headers::get().Host, upstream.host() + ":" + std::to_string(upstream.port())},
                     {Http::Headers::get().Path, upstream.path()},
                     {Http::Headers::get().ContentType, content_type},
                     {Http::Headers::get().ContentLength, std::string(headers.getContentLengthValue())},
-                    {Http::LowerCaseString("x-flow-id"), flow_id_},
+                    {Http::LowerCaseString("x-flow-id"), flow_id_}
                 }
             );
 
@@ -109,17 +109,24 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
             Envoy::Tracing::Span& active_span = encoder_callbacks_->activeSpan();
             active_span.injectContext(*(request_headers.get()));
 
-            Upstream::CallbacksAndHeaders* callbacks(
-                new Upstream::CallbacksAndHeaders(req_cb_key, std::move(request_headers), cluster_manager_)
-            );
+            Upstream::CallbacksAndHeaders* callbacks = new Upstream::CallbacksAndHeaders(req_cb_key, std::move(request_headers), cluster_manager_);
 
-            callbacks->setRequestStream(cluster_manager_.httpAsyncClientForCluster(upstream.cluster()).start(
+            Http::AsyncClient* client = nullptr;
+            try {
+                client = &(cluster_manager_.httpAsyncClientForCluster(upstream.cluster()));
+            } catch(const EnvoyException&) {
+                std::cout << "WHOOOOOAAAAAAAAA Houston we've got a problem, the cluster doesn't exist" << std::endl;
+                continue;
+            }
+            if (!client) {
+                std::cout << "WHOOOOOOAAAAAAA we couldn't get the client" << std::endl;
+                continue;
+            }
+            callbacks->setRequestStream(client->start(
                 *callbacks, AsyncClient::StreamOptions())
             );
             callbacks->requestStream()->sendHeaders(callbacks->requestHeaderMap(), end_stream);
             callbacks->setRequestKey(req_cb_key);
-            std::cout << "encodeHeaders(): " << req_cb_key << " -> " << std::to_string(size_t(callbacks)) << std::endl;
-            cluster_manager_.storeCallbacksAndHeaders(req_cb_key, callbacks);
             req_cb_keys.push_back(req_cb_key);
         }
     }
@@ -141,7 +148,6 @@ FilterDataStatus BavsFilter::encodeData(Buffer::Instance& data, bool end_stream)
         Upstream::CallbacksAndHeaders* cb =
             static_cast<Upstream::CallbacksAndHeaders*>(
                 cluster_manager_.getCallbacksAndHeaders(*iter));
-        std::cout << "encodeData(): " << *iter << " -> " << std::to_string(size_t(cb)) << std::endl;
         if (cb != NULL) {
             Http::AsyncClient::Stream* stream(cb->requestStream());
             if (stream != NULL) {
