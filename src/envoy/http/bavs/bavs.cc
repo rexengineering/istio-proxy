@@ -111,9 +111,11 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
 
             Upstream::CallbacksAndHeaders* callbacks = new Upstream::CallbacksAndHeaders(req_cb_key, std::move(request_headers), cluster_manager_);
 
+            // Envoy speaks like "outbound|5000||secret-sauce.default.svc.cluster.local"
+            std::string cluster_string = "outbound|" + std::to_string(upstream.port()) + "||" + upstream.host();
             Http::AsyncClient* client = nullptr;
             try {
-                client = &(cluster_manager_.httpAsyncClientForCluster(upstream.cluster()));
+                client = &(cluster_manager_.httpAsyncClientForCluster(cluster_string));
             } catch(const EnvoyException&) {
                 std::cout << "WHOOOOOAAAAAAAAA Houston we've got a problem, the cluster doesn't exist" << std::endl;
                 continue;
