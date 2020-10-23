@@ -30,7 +30,6 @@ namespace Envoy {
 namespace Http {
 
 BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
-    std::cout << "BavsFilterConfig(): proto_config.forwards_size()=" << proto_config.forwards_size() << std::endl;
     forwards_.reserve(proto_config.forwards_size());
     for (auto iter=proto_config.forwards().begin();
          iter != proto_config.forwards().end();
@@ -38,7 +37,6 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
         UpstreamConfigSharedPtr forwardee(
             std::make_shared<UpstreamConfig>(UpstreamConfig(*iter))
         );
-        std::cout << "BavsFilterConfig(): forwardee->name()=" << forwardee->name() << std::endl;
         forwards_.push_back(forwardee);
     }
 }
@@ -48,7 +46,9 @@ FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, b
     if ((entry != NULL) && (entry->value() != NULL)) {
         flow_id_ = std::string(entry->value().getStringView());
         is_workflow_ = true;
-        std::cout << "is_workflow is true" << std::endl;
+        std::cout << "workflow true" << std::endl;
+    } else {
+        std::cout << "workflow false" << std::endl;
     }
     return FilterHeadersStatus::Continue;
 }
@@ -66,14 +66,13 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
         std::cout << "not workflow - encodeHeaders exit" << std::endl;
         return FilterHeadersStatus::Continue;
     }
-    std::map<std::string, Envoy::VirtualServiceRoute> next_cluster_map = cluster_manager_.nextClusterMap();
 
     // If bad response from upstream, don't send to next step in workflow.
     std::string status_str(headers.getStatusValue());
     int status = atoi(status_str.c_str());
     if (status < 200 || status >= 300) {
+        std::cout << "got bad status: " << status << std::endl;
         successful_response_ = false;
-        std::cout << "didn't get a 200 of some sort, so leaving now" << std::endl;
         return FilterHeadersStatus::Continue;
     }
 
@@ -113,10 +112,18 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
 
             // Envoy speaks like "outbound|5000||secret-sauce.default.svc.cluster.local"
             std::string cluster_string = "outbound|" + std::to_string(upstream.port()) + "||" + upstream.host();
+            cluster_string += ".default.svc.cluster.local";
+
+            std::cout << "cluster_string: " << cluster_string << std::endl;
+
             Http::AsyncClient* client = nullptr;
             try {
                 client = &(cluster_manager_.httpAsyncClientForCluster(cluster_string));
             } catch(const EnvoyException&) {
+                for (const auto pair : cluster_manager_.clusters()) {
+                    std::cout << pair.first << std::endl;
+                }
+
                 std::cout << "WHOOOOOAAAAAAAAA Houston we've got a problem, the cluster doesn't exist" << std::endl;
                 continue;
             }
