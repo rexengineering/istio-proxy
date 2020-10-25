@@ -112,7 +112,6 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
 
             // Envoy speaks like "outbound|5000||secret-sauce.default.svc.cluster.local"
             std::string cluster_string = "outbound|" + std::to_string(upstream.port()) + "||" + upstream.host();
-            cluster_string += ".default.svc.cluster.local";
 
             std::cout << "cluster_string: " << cluster_string << std::endl;
 
