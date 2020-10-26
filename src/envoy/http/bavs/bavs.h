@@ -16,10 +16,6 @@
 namespace Envoy {
 namespace Http {
 
-#define BAVS_CLUSTER "outbound|9080||svc-two.default.svc.cluster.local"
-//#define BAVS_HOST "http://svc-two:9881"
-#define BAVS_HOST "http://bavs-host:9881"
-
 class UpstreamConfig {
 public:
     UpstreamConfig(const bavs::Upstream& proto_config) :

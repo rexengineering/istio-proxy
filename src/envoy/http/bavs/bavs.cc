@@ -46,9 +46,6 @@ FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, b
     if ((entry != NULL) && (entry->value() != NULL)) {
         flow_id_ = std::string(entry->value().getStringView());
         is_workflow_ = true;
-        std::cout << "workflow true" << std::endl;
-    } else {
-        std::cout << "workflow false" << std::endl;
     }
     return FilterHeadersStatus::Continue;
 }
@@ -63,7 +60,6 @@ FilterDataStatus BavsFilter::decodeData(Buffer::Instance&, bool end_stream) {
 FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, bool end_stream) {
     // intercepts the Response headers.
     if (!is_workflow_) {
-        std::cout << "not workflow - encodeHeaders exit" << std::endl;
         return FilterHeadersStatus::Continue;
     }
 
@@ -72,6 +68,7 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
     int status = atoi(status_str.c_str());
     if (status < 200 || status >= 300) {
         std::cout << "got bad status: " << status << std::endl;
+        // FIXME: Do something useful here, perhaps let Flowd know?
         successful_response_ = false;
         return FilterHeadersStatus::Continue;
     }
@@ -112,22 +109,17 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
 
             // Envoy speaks like "outbound|5000||secret-sauce.default.svc.cluster.local"
             std::string cluster_string = "outbound|" + std::to_string(upstream.port()) + "||" + upstream.host();
-
-            std::cout << "cluster_string: " << cluster_string << std::endl;
-
             Http::AsyncClient* client = nullptr;
             try {
                 client = &(cluster_manager_.httpAsyncClientForCluster(cluster_string));
             } catch(const EnvoyException&) {
-                for (const auto pair : cluster_manager_.clusters()) {
-                    std::cout << pair.first << std::endl;
-                }
-
-                std::cout << "WHOOOOOAAAAAAAAA Houston we've got a problem, the cluster doesn't exist" << std::endl;
+                std::cout << "Could not find the cluster " << cluster_string << " on WF Instance " << flow_id_;
+                // FIXME: Do something useful here; perhaps notify Flowd?
                 continue;
             }
             if (!client) {
-                std::cout << "WHOOOOOOAAAAAAA we couldn't get the client" << std::endl;
+                std::cout << "Could not find the cluster " << cluster_string << " on WF Instance " << flow_id_;
+                // FIXME: Do something useful here; perhaps notify Flowd?
                 continue;
             }
             callbacks->setRequestStream(client->start(
@@ -138,17 +130,12 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
             req_cb_keys.push_back(req_cb_key);
         }
     }
-
-    std::cout << "encodeHeaders exit" << std::endl;
     return FilterHeadersStatus::Continue;
 }
 
 FilterDataStatus BavsFilter::encodeData(Buffer::Instance& data, bool end_stream) {
-    std::cout << "encodeData(): entered, end_stream=" << std::to_string(end_stream) << std::endl;
-
     // intercepts the response data
     if (!is_workflow_ || !successful_response_) {
-        std::cout << "not workflow - encodeData exit" << std::endl;
         return FilterDataStatus::Continue;
     }
 
@@ -163,9 +150,11 @@ FilterDataStatus BavsFilter::encodeData(Buffer::Instance& data, bool end_stream)
                 stream->sendData(cpy, end_stream);
             } else {
                 std::cout << "NULL HTTP stream pointer!" << std::endl;
+                // FIXME: Do something useful here since the request failed. Maybe notify flowd?
             }
         } else {
             std::cout << "NULL callback pointer!" << std::endl;
+            // FIXME: Do something useful here since the request failed. Maybe notify flowd?
         }
     }
     return FilterDataStatus::Continue;
