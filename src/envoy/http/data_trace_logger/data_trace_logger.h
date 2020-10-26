@@ -52,7 +52,7 @@ namespace Http {
  * span data at 1MB per span. Anytime there's a larger request, we will stream the data
  * to a service that writes it to s3.
  */
-#define MAX_SPAN_DATA_SIZE 0x100000
+#define MAX_SPAN_DATA_SIZE 0x20000
 #define MAX_REQUEST_SPAN_DATA_SIZE MAX_SPAN_DATA_SIZE / 2
 #define MAX_RESPONSE_SPAN_DATA_SIZE MAX_SPAN_DATA_SIZE / 2
 // For code simplicity:
@@ -63,8 +63,8 @@ namespace Http {
 
 // Don't trace requests to the S3 storage service.
 #define DTL_FILTER_S3_HEADER "x-rextrace-is-s3-request"
-#define S3_UPLOADER_CLUSTER "outbound|9080||s3-uploader.default.svc.cluster.local"
-#define S3_UPLOADER_HOST "s3-uploader:9080"
+#define S3_UPLOADER_CLUSTER "outbound|9080||rextrace-s3-uploader.default.svc.cluster.local"
+#define S3_UPLOADER_HOST "rextrace-s3-uploader:9080"
 #define DTL_FILTER_S3_DONTTRACEME "donttraceme"
 
 // How long to wait for "200" response from s3-uploader service.
