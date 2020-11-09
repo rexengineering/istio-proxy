@@ -113,12 +113,12 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
             try {
                 client = &(cluster_manager_.httpAsyncClientForCluster(cluster_string));
             } catch(const EnvoyException&) {
-                std::cout << "Could not find the cluster " << cluster_string << " on WF Instance " << flow_id_;
+                std::cout << "Could not find the cluster " << cluster_string << " on WF Instance " << flow_id_ << std::endl;;
                 // FIXME: Do something useful here; perhaps notify Flowd?
                 continue;
             }
             if (!client) {
-                std::cout << "Could not find the cluster " << cluster_string << " on WF Instance " << flow_id_;
+                std::cout << "Could not find the cluster " << cluster_string << " on WF Instance " << flow_id_ << std::endl;
                 // FIXME: Do something useful here; perhaps notify Flowd?
                 continue;
             }
