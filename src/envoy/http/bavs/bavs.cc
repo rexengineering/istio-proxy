@@ -39,13 +39,20 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
         );
         forwards_.push_back(forwardee);
     }
+    wf_id_ = proto_config.wf_id();
 }
 
 FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, bool) {
     const Http::HeaderEntry* entry = headers.get(Http::LowerCaseString("x-flow-id"));
     if ((entry != NULL) && (entry->value() != NULL)) {
-        flow_id_ = std::string(entry->value().getStringView());
-        is_workflow_ = true;
+        const Http::HeaderEntry* wf_template_entry = headers.get(Http::LowerCaseString("x-rexflow-wf-id"));
+        if (wf_template_entry != NULL && wf_template_entry->value() != NULL &&
+                (wf_template_entry->value().getStringView() == config_->wfIdValue())) {
+            // FIXME: flow_id is a WF Instance id, and wf_id is a Workflow Template ID. Confusing.
+            flow_id_ = std::string(entry->value().getStringView());
+            wf_template_id_ = std::string(wf_template_entry->value().getStringView());
+            is_workflow_ = true;
+        }
     }
     return FilterHeadersStatus::Continue;
 }
@@ -97,6 +104,7 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
                     {Http::Headers::get().Path, upstream.path()},
                     {Http::Headers::get().ContentType, content_type},
                     {Http::Headers::get().ContentLength, std::string(headers.getContentLengthValue())},
+                    {Http::LowerCaseString("x-rexflow-wf-id"), wf_template_id_},
                     {Http::LowerCaseString("x-flow-id"), flow_id_}
                 }
             );

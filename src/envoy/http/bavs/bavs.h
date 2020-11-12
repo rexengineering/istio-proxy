@@ -45,10 +45,13 @@ class BavsFilterConfig {
 public:
     BavsFilterConfig(const bavs::BAVSFilter& proto_config);
 
+    const std::string& wfIdValue() { return wf_id_; }
+
     const std::vector<const UpstreamConfigSharedPtr>& forwards() { return forwards_; }
 
 private:
     std::vector<const UpstreamConfigSharedPtr> forwards_;
+    std::string wf_id_;
 };
 
 using BavsFilterConfigSharedPtr = std::shared_ptr<BavsFilterConfig>;
@@ -63,6 +66,7 @@ private:
     bool successful_response_;
     std::vector<std::string> req_cb_keys;
     std::string flow_id_;
+    std::string wf_template_id_;
 
 public:
     BavsFilter(BavsFilterConfigSharedPtr config, Upstream::ClusterManager& cluster_manager)

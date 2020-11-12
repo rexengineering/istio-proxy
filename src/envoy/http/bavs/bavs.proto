@@ -15,4 +15,5 @@ message Upstream {
 
 message BAVSFilter {
     repeated Upstream forwards = 1;
+    string wf_id = 2;
 }
