@@ -130,11 +130,10 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
                 // FIXME: Do something useful here; perhaps notify Flowd?
                 continue;
             }
-            callbacks->setRequestStream(client->start(
+            callbacks->setStream(client->start(
                 *callbacks, AsyncClient::StreamOptions())
             );
-            callbacks->requestStream()->sendHeaders(callbacks->requestHeaderMap(), end_stream);
-            callbacks->setRequestKey(req_cb_key);
+            callbacks->getStream()->sendHeaders(callbacks->requestHeaderMap(), end_stream);
             req_cb_keys.push_back(req_cb_key);
         }
     }
@@ -148,11 +147,9 @@ FilterDataStatus BavsFilter::encodeData(Buffer::Instance& data, bool end_stream)
     }
 
     for (auto iter=req_cb_keys.begin(); iter != req_cb_keys.end(); iter++) {
-        Upstream::CallbacksAndHeaders* cb =
-            static_cast<Upstream::CallbacksAndHeaders*>(
-                cluster_manager_.getCallbacksAndHeaders(*iter));
+        Envoy::Upstream::AsyncStreamCallbacksAndHeaders *cb = cluster_manager_.getCallbacksAndHeaders(*iter);
         if (cb != NULL) {
-            Http::AsyncClient::Stream* stream(cb->requestStream());
+            Http::AsyncClient::Stream* stream(cb->getStream());
             if (stream != NULL) {
                 Buffer::OwnedImpl cpy{data};
                 stream->sendData(cpy, end_stream);
