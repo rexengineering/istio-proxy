@@ -40,6 +40,9 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
         forwards_.push_back(forwardee);
     }
     wf_id_ = proto_config.wf_id();
+    flowd_cluster_ = proto_config.flowd_envoy_cluster();
+    flowd_path_ = proto_config.flowd_path();
+
 }
 
 FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, bool) {
@@ -105,15 +108,23 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
                     {Http::Headers::get().ContentType, content_type},
                     {Http::Headers::get().ContentLength, std::string(headers.getContentLengthValue())},
                     {Http::LowerCaseString("x-rexflow-wf-id"), wf_template_id_},
+                    {Http::LowerCaseString("x-rexflow-error-after"), std::to_string(upstream.totalAttempts())},
+                    {Http::LowerCaseString("x-rexflow-error-path"), config_->flowdPath()},
                     {Http::LowerCaseString("x-flow-id"), flow_id_}
                 }
             );
-
             // Inject tracing context
             Envoy::Tracing::Span& active_span = encoder_callbacks_->activeSpan();
             active_span.injectContext(*(request_headers.get()));
 
-            Upstream::CallbacksAndHeaders* callbacks = new Upstream::CallbacksAndHeaders(req_cb_key, std::move(request_headers), cluster_manager_);
+            const auto trace_hdr = request_headers->get(Http::LowerCaseString("x-b3-traceid"));
+            if (trace_hdr) {
+                std::cout << "got the trace header: " << trace_hdr->value().getStringView();
+                headers.setCopy(Http::LowerCaseString("x-b3-traceid"), std::string(trace_hdr->value().getStringView()));
+            } else {
+                std::cout << "No trace header found. " << std::endl;
+            }
+
 
             // Envoy speaks like "outbound|5000||secret-sauce.default.svc.cluster.local"
             std::string cluster_string = "outbound|" + std::to_string(upstream.port()) + "||" + upstream.host();
@@ -130,9 +141,13 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
                 // FIXME: Do something useful here; perhaps notify Flowd?
                 continue;
             }
+
+            BavsRetriableCallbacks* callbacks = new BavsRetriableCallbacks(req_cb_key, std::move(request_headers), cluster_manager_,
+                    upstream.totalAttempts(), config_->flowdCluster(), cluster_string, config_->flowdPath());
             callbacks->setStream(client->start(
                 *callbacks, AsyncClient::StreamOptions())
             );
+
             callbacks->getStream()->sendHeaders(callbacks->requestHeaderMap(), end_stream);
             req_cb_keys.push_back(req_cb_key);
         }
@@ -147,8 +162,9 @@ FilterDataStatus BavsFilter::encodeData(Buffer::Instance& data, bool end_stream)
     }
 
     for (auto iter=req_cb_keys.begin(); iter != req_cb_keys.end(); iter++) {
-        Envoy::Upstream::AsyncStreamCallbacksAndHeaders *cb = cluster_manager_.getCallbacksAndHeaders(*iter);
+        BavsRetriableCallbacks* cb = static_cast<BavsRetriableCallbacks*>(cluster_manager_.getCallbacksAndHeaders(*iter));
         if (cb != NULL) {
+            cb->addData(data);
             Http::AsyncClient::Stream* stream(cb->getStream());
             if (stream != NULL) {
                 Buffer::OwnedImpl cpy{data};
