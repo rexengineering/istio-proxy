@@ -130,7 +130,8 @@ public:
     UpstreamConfig(const bavs::Upstream& proto_config) :
         name_(proto_config.name()), cluster_(proto_config.cluster()),
         host_(proto_config.host()), port_(proto_config.port()),
-        path_(proto_config.path()), method_(proto_config.method()), total_attempts_(proto_config.total_attempts()) {}
+        path_(proto_config.path()), method_(proto_config.method()), total_attempts_(proto_config.total_attempts()),
+        task_id_(proto_config.task_id()) {}
 
     inline const std::string& name() const { return name_; }
     inline const std::string& cluster() const { return cluster_; }
@@ -139,6 +140,7 @@ public:
     inline const std::string& path() const { return path_; }
     inline const std::string& method() const { return method_; }
     inline int totalAttempts() const { return total_attempts_; }
+    inline const std::string& taskId() const { return task_id_; }
 
 private:
     std::string name_;
@@ -148,6 +150,7 @@ private:
     std::string path_;
     std::string method_;
     int total_attempts_;
+    std::string task_id_;
 };
 
 using UpstreamConfigSharedPtr = std::shared_ptr<UpstreamConfig>;
@@ -159,6 +162,7 @@ public:
     const std::string& wfIdValue() { return wf_id_; }
     const std::string& flowdCluster() { return flowd_cluster_; }
     const std::string& flowdPath() { return flowd_path_; }
+    const std::string& taskId() { return task_id_; }
 
     const std::vector<const UpstreamConfigSharedPtr>& forwards() { return forwards_; }
 
@@ -167,6 +171,7 @@ private:
     std::string wf_id_;
     std::string flowd_cluster_;
     std::string flowd_path_;
+    std::string task_id_;
 };
 
 using BavsFilterConfigSharedPtr = std::shared_ptr<BavsFilterConfig>;

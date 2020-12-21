@@ -42,11 +42,17 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
     wf_id_ = proto_config.wf_id();
     flowd_cluster_ = proto_config.flowd_envoy_cluster();
     flowd_path_ = proto_config.flowd_path();
+    task_id_ = proto_config.task_id();
 
 }
 
 FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, bool) {
-    const Http::HeaderEntry* entry = headers.get(Http::LowerCaseString("x-flow-id"));
+    const Http::HeaderEntry* entry = headers.get(Http::LowerCaseString("x-rexflow-task-id"));
+    if (entry == NULL || (entry->value() != NULL && entry->value().getStringView() != config_->taskId())) {
+        return FilterHeadersStatus::Continue;
+    }
+
+    entry = headers.get(Http::LowerCaseString("x-flow-id"));
     if ((entry != NULL) && (entry->value() != NULL)) {
         const Http::HeaderEntry* wf_template_entry = headers.get(Http::LowerCaseString("x-rexflow-wf-id"));
         if (wf_template_entry != NULL && wf_template_entry->value() != NULL &&
@@ -110,6 +116,7 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
                     {Http::LowerCaseString("x-rexflow-wf-id"), wf_template_id_},
                     {Http::LowerCaseString("x-rexflow-error-after"), std::to_string(upstream.totalAttempts())},
                     {Http::LowerCaseString("x-rexflow-error-path"), config_->flowdPath()},
+                    {Http::LowerCaseString("x-rexflow-task-id"), upstream.taskId()},
                     {Http::LowerCaseString("x-flow-id"), flow_id_}
                 }
             );

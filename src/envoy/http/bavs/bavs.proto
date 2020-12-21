@@ -12,6 +12,7 @@ message Upstream {
     string path = 5;
     string method = 6;
     int32 total_attempts = 7;
+    string task_id = 8;
 }
 
 message BAVSFilter {
@@ -19,4 +20,5 @@ message BAVSFilter {
     string wf_id = 2;
     string flowd_envoy_cluster = 3;
     string flowd_path = 4;
+    string task_id = 5;
 }
