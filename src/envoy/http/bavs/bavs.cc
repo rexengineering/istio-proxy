@@ -126,12 +126,8 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
 
             const auto trace_hdr = request_headers->get(Http::LowerCaseString("x-b3-traceid"));
             if (trace_hdr) {
-                std::cout << "got the trace header: " << trace_hdr->value().getStringView();
                 headers.setCopy(Http::LowerCaseString("x-b3-traceid"), std::string(trace_hdr->value().getStringView()));
-            } else {
-                std::cout << "No trace header found. " << std::endl;
             }
-
 
             // Envoy speaks like "outbound|5000||secret-sauce.default.svc.cluster.local"
             std::string cluster_string = "outbound|" + std::to_string(upstream.port()) + "||" + upstream.host();
@@ -139,13 +135,24 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
             try {
                 client = &(cluster_manager_.httpAsyncClientForCluster(cluster_string));
             } catch(const EnvoyException&) {
-                std::cout << "Could not find the cluster " << cluster_string << " on WF Instance " << flow_id_ << std::endl;;
-                // FIXME: Do something useful here; perhaps notify Flowd?
-                continue;
+                std::cout << "Could not find the cluster " << cluster_string << " on WF Instance " << flow_id_;
+                std::cout << "...sending traffic to Flowd instead." << std::endl;;
+
+                // Try to send traffic to Flowd so at least we save the state of the WF Instance.
+                try {
+                    client = &(cluster_manager_.httpAsyncClientForCluster(config_->flowdCluster()));
+                    request_headers->setCopy(Http::LowerCaseString("x-rexflow-original-path"), request_headers->getPathValue());
+                    request_headers->setCopy(Http::LowerCaseString("x-rexflow-original-host"), request_headers->getHostValue());
+                    request_headers->setPath(config_->flowdPath());
+                    cluster_string = config_->flowdCluster();
+                } catch(const EnvoyException&) {
+                    std::cout << "Could not connect to Flowd on WF Instance " << flow_id_ << std::endl;
+                    continue;
+                }
             }
             if (!client) {
-                std::cout << "Could not find the cluster " << cluster_string << " on WF Instance " << flow_id_ << std::endl;
-                // FIXME: Do something useful here; perhaps notify Flowd?
+                // Completely out of luck.
+                std::cout << "Could not connect to Flowd on WF Instance " << flow_id_ << std::endl;
                 continue;
             }
 
