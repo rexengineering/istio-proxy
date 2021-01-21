@@ -21,13 +21,14 @@ namespace Http {
 class BavsRetriableCallbacks : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
 public:
     ~BavsRetriableCallbacks() = default;
+    BavsRetriableCallbacks() {};
     BavsRetriableCallbacks(std::string id, std::unique_ptr<Http::RequestHeaderMapImpl> headers,
                         Upstream::ClusterManager& cm, int num_retries, std::string fail_cluster, std::string cluster,
                         std::string fail_cluster_path)
-        : id_(id), cluster_manager_(cm), attempts_left_(num_retries),
+        : id_(id), cluster_manager_(&cm), attempts_left_(num_retries),
           fail_cluster_(fail_cluster), cluster_(cluster), headers_(std::move(headers)), buffer_(new Buffer::OwnedImpl),
           headers_only_(false), fail_cluster_path_(fail_cluster_path) {
-        cluster_manager_.storeCallbacksAndHeaders(id, this);
+        cluster_manager_->storeCallbacksAndHeaders(id, this);
     }
 
     void onHeaders(Http::ResponseHeaderMapPtr&& headers, bool) override {
@@ -65,7 +66,7 @@ public:
             doRetry(headers_only_);
         }
         // Finally, remove ourself from the clusterManager
-        cluster_manager_.eraseCallbacksAndHeaders(id_);
+        cluster_manager_->eraseCallbacksAndHeaders(id_);
     }
     Http::RequestHeaderMapImpl& requestHeaderMap() override {
         return *(headers_.get());
@@ -83,7 +84,7 @@ private:
     void doRetry(bool end_stream) {
         Http::AsyncClient* client = nullptr;
         try {
-            client = &(cluster_manager_.httpAsyncClientForCluster(cluster_));
+            client = &(cluster_manager_->httpAsyncClientForCluster(cluster_));
         } catch(const EnvoyException&) {
             std::cout << "Couldn't find the cluster " << cluster_ << std::endl;
         }
@@ -92,7 +93,7 @@ private:
         Runtime::RandomGeneratorImpl rng;
         std::string new_id = rng.uuid();
         BavsRetriableCallbacks *cb = new BavsRetriableCallbacks(new_id, std::move(headers_),
-                cluster_manager_, attempts_left_ - 1, fail_cluster_, cluster_, fail_cluster_path_);
+                *cluster_manager_, attempts_left_ - 1, fail_cluster_, cluster_, fail_cluster_path_);
         cb->addData(*buffer_);
 
         auto stream = client->start(*cb, AsyncClient::StreamOptions());
@@ -110,7 +111,7 @@ private:
     }
 
     std::string id_;
-    Upstream::ClusterManager& cluster_manager_;
+    Upstream::ClusterManager* cluster_manager_;
     int attempts_left_;
     std::string fail_cluster_;
     std::string cluster_;
@@ -127,6 +128,7 @@ private:
 
 class UpstreamConfig {
 public:
+    UpstreamConfig() {}
     UpstreamConfig(const bavs::Upstream& proto_config) :
         name_(proto_config.name()), cluster_(proto_config.cluster()),
         host_(proto_config.host()), port_(proto_config.port()),
@@ -157,14 +159,16 @@ using UpstreamConfigSharedPtr = std::shared_ptr<UpstreamConfig>;
 
 class BavsFilterConfig {
 public:
+    virtual ~BavsFilterConfig() {}
+    BavsFilterConfig() {}
     BavsFilterConfig(const bavs::BAVSFilter& proto_config);
 
-    const std::string& wfIdValue() { return wf_id_; }
-    const std::string& flowdCluster() { return flowd_cluster_; }
-    const std::string& flowdPath() { return flowd_path_; }
-    const std::string& taskId() { return task_id_; }
+    virtual const std::string& wfIdValue() { return wf_id_; }
+    virtual const std::string& flowdCluster() { return flowd_cluster_; }
+    virtual const std::string& flowdPath() { return flowd_path_; }
+    virtual const std::string& taskId() { return task_id_; }
 
-    const std::vector<const UpstreamConfigSharedPtr>& forwards() { return forwards_; }
+    virtual const std::vector<const UpstreamConfigSharedPtr>& forwards() { return forwards_; }
 
 private:
     std::vector<const UpstreamConfigSharedPtr> forwards_;
@@ -178,7 +182,6 @@ using BavsFilterConfigSharedPtr = std::shared_ptr<BavsFilterConfig>;
 
 class BavsFilter : public PassThroughFilter, public Logger::Loggable<Logger::Id::filter> {
 private:
-    void httpCallAtOnce(std::string, int);
     // void saveResponseHeaders(Http::ResponseHeaderMap&);
     const BavsFilterConfigSharedPtr config_;
     Upstream::ClusterManager& cluster_manager_;

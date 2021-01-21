@@ -50,7 +50,7 @@ envoy_cc_test(
     srcs = ["bavs_test.cc"],
     repository = "@envoy",
     deps = [
-        ":bavs",
+        ":bavs_lib",
         "@envoy//test/integration:http_integration_lib",
         "@envoy//test/integration:integration_lib",
     ],

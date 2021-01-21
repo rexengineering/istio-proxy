@@ -20,3 +20,4 @@ test/envoye2e/http_metadata_exchange/testoutput
 /extensions/common/nlohmann_json.hpp
 out/
 *~
+buildtools/envoy

@@ -1,31 +1,30 @@
-# IMPORTANT:
-Before doing anything, read the `README.rex.md` file.
+# Working with this repo
 
-# Istio Proxy
+To set up your local checkout of this repo properly, follow these steps:
 
-The Istio Proxy is a microservice proxy that can be used on the client and server side, and forms a microservice mesh. The Proxy supports a large number of features.
+```
+git clone git@bitbucket.org:rexdev/istio-proxy.git
+cd istio-proxy
+./repo_init.sh
+```
 
-Client Side Features:
 
-- *Discovery & Load Balancing*. The Proxy can use several standard service discovery and load balancing APIs to efficiently distribute traffic to services.
+When you are done, you will have a master branch that tracks istio/envoy on github, and a rex/master branch that tracks our local changes, each of which can be git pulled independently.
 
-- *Credential Injection*. The Proxy can inject client identity, either through connection tunneling or protocol-specific mechanisms such as JWT tokens for HTTP requests.
+# NOTE. IMPORTANT!!!!!!!!!!!!!!!!!!!!
 
-- *Connection Management*. The Proxy manages connections to services, handling health checking, retry, failover, and flow control.
+As of this commit, the `rex/master` branch is based off of the 1.7.1 tag of `sync`. *PLEASE* do not update `rex/master` to a more recent version of the upstream (`istio/envoy`) unless you BOTH know what you're doing AND have confirmed with the full infrastructure team that we are moving to a more recent version of istio.
 
-- *Monitoring & Logging*. The Proxy can report client-side metrics and logs to the Mixer.
 
-Server Side Features:
+# Building your Istio-Proxy Image
 
-- *Rate Limiting & Flow Control*. The Proxy can prevent overload of backend systems and provide client-aware rate limiting.
+We build and develop using a Docker Container with volume mounts. To set up such a container, run `buildtools/build_setup.sh` (you may need to set `REX_ISTIO_ENVOY_PATH`).
 
-- *Protocol Translation*. The Proxy is a gRPC gateway, providing translation between JSON-REST and gRPC.
+That setup only needs to be run once. Then, to build your proxy image, just run `./rebuild.sh`.
 
-- *Authentication & Authorization*. The Proxy supports multiple authentication mechanisms, and can use the client identities to perform authorization checks through the Mixer.
+NOTE: all commands must be run from the root of the repo.
 
-- *Monitoring & Logging*. The Proxy can report server-side metrics and logs to the Mixer.
 
-Please see [istio.io](https://istio.io)
-to learn about the overall Istio project and how to get in touch with us. To learn how you can
-contribute to any of the Istio components, including the proxy, please 
-see the Istio [contribution guidelines](https://github.com/istio/istio/blob/master/CONTRIBUTING.md).
+# Using your Istio-Proxy Image (locally)
+
+After you have built the Istio-proxy image locally, you can exercise that image using REXFlow. A good way to get a flavor is to follow the instructions at one of the rexflow [example readme's](https://bitbucket.org/rexdev/rexflow/src/f8c2a0a0ebd67227cfec802222ad0e1be22c5469/examples/istio/README.md?at=master)
