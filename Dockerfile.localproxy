@@ -1,0 +1,5 @@
+FROM istio/proxyv2:1.8.2 AS theirproxy
+
+COPY envoy /usr/local/bin/
+
+ENTRYPOINT ["/usr/local/bin/pilot-agent"]

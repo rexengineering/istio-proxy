@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package bavs;
+
+import "validate/validate.proto";
+
+message Upstream {
+    string name = 1 [(validate.rules).string.min_bytes = 1];
+    string cluster = 2 [(validate.rules).string.min_bytes = 1];
+    string host = 3 [(validate.rules).string.min_bytes = 1];
+    int32 port = 4;
+    string path = 5;
+    string method = 6;
+    int32 total_attempts = 7;
+    string task_id = 8;
+}
+
+message BAVSFilter {
+    repeated Upstream forwards = 1;
+    string wf_id = 2;
+    string flowd_envoy_cluster = 3;
+    string flowd_path = 4;
+    string task_id = 5;
+    string traffic_shadow_cluster = 6;
+    string traffic_shadow_path = 7;
+}
