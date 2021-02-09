@@ -1,4 +1,4 @@
-FROM cr.io/istio-testing/build-tools-proxy@sha256:f811d5d113e34f33ecec18b6b1e03dc0139d5cda15c0b1d70c8f0f1b6d016a0b AS builder
+FROM gcr.io/istio-testing/build-tools-proxy@sha256:f811d5d113e34f33ecec18b6b1e03dc0139d5cda15c0b1d70c8f0f1b6d016a0b AS builder
 
 RUN mkdir /proxy
 COPY . /proxy/
