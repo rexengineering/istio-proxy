@@ -1,0 +1,3 @@
+[submodule "istio-envoy"]
+	path = istio-envoy
+	url = git@bitbucket.org:rexdev/istio-envoy.git
