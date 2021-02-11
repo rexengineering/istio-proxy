@@ -90,10 +90,10 @@ void DataTraceLogger::logBufferInstance(Buffer::Instance& data, Tracing::Span& a
 FilterDataStatus DataTraceLogger::decodeData(Buffer::Instance& data, bool end_stream) {
     // intercepts the request data
     if (!should_log_) return FilterDataStatus::Continue;
-    Upstream::CallbacksAndHeaders* cb = static_cast<Upstream::CallbacksAndHeaders*>(cluster_manager_.getCallbacksAndHeaders(req_cb_key_));
-    if (cb && cb->requestStream()) {
+    Envoy::Upstream::AsyncStreamCallbacksAndHeaders *cb = cluster_manager_.getCallbacksAndHeaders(req_cb_key_);
+    if (cb && cb->getStream()) {
         Buffer::OwnedImpl cpy{data};
-        cb->requestStream()->sendData(cpy, end_stream);
+        cb->getStream()->sendData(cpy, end_stream);
     }
 
     if (!end_stream) {
@@ -108,11 +108,11 @@ FilterDataStatus DataTraceLogger::decodeData(Buffer::Instance& data, bool end_st
 FilterDataStatus DataTraceLogger::encodeData(Buffer::Instance& data, bool end_stream) {
     // intercepts the response data
     if (!should_log_) return FilterDataStatus::Continue;
-    Upstream::CallbacksAndHeaders* cb = static_cast<Upstream::CallbacksAndHeaders*>(cluster_manager_.getCallbacksAndHeaders(res_cb_key_));
+    Envoy::Upstream::AsyncStreamCallbacksAndHeaders *cb = cluster_manager_.getCallbacksAndHeaders(res_cb_key_);
 
-    if (cb && cb->responseStream()) {
+    if (cb && cb->getStream()) {
         Buffer::OwnedImpl cpy{data};
-        cb->responseStream()->sendData(cpy, end_stream);
+        cb->getStream()->sendData(cpy, end_stream);
     }
 
     if (!end_stream) {
@@ -192,19 +192,19 @@ void DataTraceLogger::initializeStream(Http::RequestOrResponseHeaderMap& hdrs, s
     if (type == "request") {
         req_cb_key_ = s3_object_key;
         active_span.setTag("request_s3_key", s3_object_key);  // let the eng know where to find data in s3
-        callbacks->setRequestStream(client->start(*callbacks, AsyncClient::StreamOptions()));
-        if (callbacks->requestStream()) {
-            callbacks->requestStream()->sendHeaders(callbacks->requestHeaderMap(), false);
-            callbacks->setRequestKey(s3_object_key);
-        }
+        
     } else {
         res_cb_key_ = s3_object_key;
-        callbacks->setResponseStream(client->start(*callbacks, AsyncClient::StreamOptions()));
-        if (callbacks->responseStream()) {
-            active_span.setTag("response_s3_key", s3_object_key);  // let the eng know where to find data in s3
-            callbacks->responseStream()->sendHeaders(callbacks->requestHeaderMap(), false);
-            callbacks->setResponseKey(s3_object_key);
-        }
+        // callbacks->setResponseStream(client->start(*callbacks, AsyncClient::StreamOptions()));
+        // if (callbacks->responseStream()) {
+        //     active_span.setTag("response_s3_key", s3_object_key);  // let the eng know where to find data in s3
+        //     callbacks->responseStream()->sendHeaders(callbacks->requestHeaderMap(), false);
+        //     callbacks->setResponseKey(s3_object_key);
+        // }
+    }
+    callbacks->setStream(client->start(*callbacks, AsyncClient::StreamOptions()));
+    if (callbacks->getStream()) {
+        callbacks->getStream()->sendHeaders(callbacks->requestHeaderMap(), false);
     }
 }
 

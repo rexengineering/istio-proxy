@@ -32,6 +32,8 @@ public:
     MOCK_METHOD(std::string&, getRequestKey, ());
     MOCK_METHOD(void, setResponseKey, (std::string& key));
     MOCK_METHOD(std::string&, getResponseKey, ());
+    MOCK_METHOD(void, setStream, (AsyncClient::Stream*));
+    MOCK_METHOD(AsyncClient::Stream*, getStream, ());
 };
 
 
