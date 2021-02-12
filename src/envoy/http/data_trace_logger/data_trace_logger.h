@@ -82,6 +82,8 @@ private:
     int request_stream_fragment_count_;
     int response_stream_fragment_count_;
     Upstream::ClusterManager& cluster_manager_;
+    void cleanup(std::string& cb_key);
+    void onDestroy();
 
     bool should_log_;
     std::string req_cb_key_;

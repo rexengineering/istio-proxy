@@ -93,6 +93,17 @@ FilterDataStatus DataTraceLogger::decodeData(Buffer::Instance& data, bool end_st
     if (cb && cb->getStream()) {
         Buffer::OwnedImpl cpy{data};
         cb->getStream()->sendData(cpy, end_stream);
+        if (end_stream) {
+            auto& active_span = decoder_callbacks_->activeSpan();
+
+            // Recall that, in initializeStream, we leave a failure message here by
+            // default. Since we got to this line, we know the call succeeded.
+            // Therefore, we now overwrite the error message with a clean s3 key.
+            active_span.setTag("request_s3_key", req_cb_key_);
+
+            // Doing this lets onDestroy know that we successfully processed the stream.
+            req_cb_key_ = "";
+        }
     }
 
     if (!end_stream) {
@@ -112,6 +123,17 @@ FilterDataStatus DataTraceLogger::encodeData(Buffer::Instance& data, bool end_st
     if (cb && cb->getStream()) {
         Buffer::OwnedImpl cpy{data};
         cb->getStream()->sendData(cpy, end_stream);
+        if (end_stream) {
+            auto& active_span = encoder_callbacks_->activeSpan();
+
+            // Recall that, in initializeStream, we leave a failure message here by
+            // default. Since we got to this line, we know the call succeeded.
+            // Therefore, we now overwrite the error message with a clean s3 key.
+            active_span.setTag("response_s3_key", res_cb_key_);
+
+            // Doing this lets onDestroy know that we successfully processed the stream.
+            res_cb_key_ = "";
+        }
     }
 
     if (!end_stream) {
@@ -190,20 +212,63 @@ void DataTraceLogger::initializeStream(Http::RequestOrResponseHeaderMap& hdrs, s
 
     if (type == "request") {
         req_cb_key_ = s3_object_key;
-        active_span.setTag("request_s3_key", s3_object_key);  // let the eng know where to find data in s3
-        
     } else {
         res_cb_key_ = s3_object_key;
-        // callbacks->setResponseStream(client->start(*callbacks, AsyncClient::StreamOptions()));
-        // if (callbacks->responseStream()) {
-        //     active_span.setTag("response_s3_key", s3_object_key);  // let the eng know where to find data in s3
-        //     callbacks->responseStream()->sendHeaders(callbacks->requestHeaderMap(), false);
-        //     callbacks->setResponseKey(s3_object_key);
-        // }
     }
+
+    /**
+     * See note in onDestroy(). We preemptively assume that the client closes
+     * connection early. If the request goes through properly, then we change the
+     * stored tag to reflect that.
+     */
+    std::string msg = "Tried to save data into s3 at key " + s3_object_key;
+    msg += " but the connection was cut off by the client before Envoy ";
+    msg += "was able to read all of the request data. Therefore, the data";
+    msg += " stored in s3 will be missing or incomplete.";
+    active_span.setTag(type + "_s3_key", msg);
+
+
     callbacks->setStream(client->start(*callbacks, AsyncClient::StreamOptions()));
     if (callbacks->getStream()) {
         callbacks->getStream()->sendHeaders(callbacks->requestHeaderMap(), false);
+    }
+}
+
+void DataTraceLogger::onDestroy() {
+    /**
+     * As per documentation, this is called when the filter is destroyed. There's
+     * a possibility that the filter gets destroyed EITHER:
+     * 1. After the client sends a malformed request that doesn't include all
+     *    the data OR
+     * 2. Before the client can finish sending the data (for example, a 405 on a
+     *    POST to a GET-only endpoint).
+     * In these cases, if we have an open connection to the rextrace-s3-uploader,
+     * that connection gets leaked. Therfore, we use this opportunity to close
+     * the connection by sending a `sendData(no-data, end_stream=True)`.
+     */
+    if (req_cb_key_.length()) cleanup(req_cb_key_);
+    if (res_cb_key_.length()) cleanup(res_cb_key_);
+}
+
+void DataTraceLogger::cleanup(std::string& cb_key) {
+    /**
+     * Accepts a key for a CallbacksAndHeaders object. Ends the stream and
+     * marks in the span that the Client broke off the connection before
+     * the data was fully sent—-therefore the data couldn't be properly
+     * stored in s3.
+     *
+     * NOTE on implementation: I attempted to do an active_span.setTag()
+     * in this function. HOWEVER, the setTag() call had no effect and the
+     * span wasn't modified. I conclude that the onDestroy() method is too
+     * late to edit the span's tags.
+     */
+
+    Envoy::Upstream::AsyncStreamCallbacksAndHeaders *cb = cluster_manager_.getCallbacksAndHeaders(cb_key);
+    if (cb && cb->getStream()) {
+        // As per include/envoy/http/async_client.h: we can close the stream by a call
+        // to sendData() with an empty buffer and end_stream==true.
+        Buffer::OwnedImpl empty_buf{};
+        cb->getStream()->sendData(empty_buf, true);
     }
 }
 
