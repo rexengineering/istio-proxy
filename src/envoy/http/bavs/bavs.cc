@@ -112,7 +112,7 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
             std::unique_ptr<RequestHeaderMapImpl> request_headers = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
                 {
                     {Http::Headers::get().Method, upstream.method()},
-                    {Http::Headers::get().Host, upstream.host() + ":" + std::to_string(upstream.port())},
+                    {Http::Headers::get().Host, upstream.full_hostname() + ":" + std::to_string(upstream.port())},
                     {Http::Headers::get().Path, upstream.path()},
                     {Http::Headers::get().ContentType, content_type},
                     {Http::Headers::get().ContentLength, std::string(headers.getContentLengthValue())},
@@ -133,7 +133,7 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
             }
 
             // Envoy speaks like "outbound|5000||secret-sauce.default.svc.cluster.local"
-            std::string cluster_string = "outbound|" + std::to_string(upstream.port()) + "||" + upstream.host();
+            std::string cluster_string = "outbound|" + std::to_string(upstream.port()) + "||" + upstream.full_hostname();
             Http::AsyncClient* client = nullptr;
             try {
                 client = &(cluster_manager_.httpAsyncClientForCluster(cluster_string));
@@ -165,7 +165,9 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
                 *callbacks, AsyncClient::StreamOptions())
             );
 
-            sendShadowHeaders(callbacks->requestHeaderMap());
+            if (config_->trafficShadowCluster() != "") {
+                sendShadowHeaders(callbacks->requestHeaderMap());
+            }
             callbacks->getStream()->sendHeaders(callbacks->requestHeaderMap(), end_stream);
             req_cb_keys.push_back(req_cb_key);
         }

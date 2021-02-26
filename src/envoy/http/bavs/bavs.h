@@ -103,10 +103,17 @@ private:
             cb->getStream()->sendHeaders(cb->requestHeaderMap(), end_stream);
         }
         if (!end_stream) {
-            if (cb->getStream()) {
+            // After sending, the connection may have been auto-closed if the service is down.
+            // Therefore, we have to re-check to make sure that the `cb` is still valid and its
+            // stream is also still valid.
+            cb = static_cast<BavsRetriableCallbacks*>(cluster_manager_->getCallbacksAndHeaders(new_id));
+            if (cb && cb->getStream()) {
                 cb->getStream()->sendData(*buffer_, true);
+
+                // Once again, there's a chance that it was terminated. Check for closure again.
+                cb = static_cast<BavsRetriableCallbacks*>(cluster_manager_->getCallbacksAndHeaders(new_id));
                 Buffer::OwnedImpl empty_buffer;
-                cb->getStream()->sendData(empty_buffer, true);
+                if (cb && cb->getStream()) cb->getStream()->sendData(empty_buffer, true);
             }
         }
     }
@@ -131,14 +138,11 @@ class UpstreamConfig {
 public:
     UpstreamConfig() {}
     UpstreamConfig(const bavs::Upstream& proto_config) :
-        name_(proto_config.name()), cluster_(proto_config.cluster()),
-        host_(proto_config.host()), port_(proto_config.port()),
+        full_hostname_(proto_config.full_hostname()), port_(proto_config.port()),
         path_(proto_config.path()), method_(proto_config.method()), total_attempts_(proto_config.total_attempts()),
         task_id_(proto_config.task_id()) {}
 
-    inline const std::string& name() const { return name_; }
-    inline const std::string& cluster() const { return cluster_; }
-    inline const std::string& host() const { return host_; }
+    inline const std::string& full_hostname() const { return full_hostname_; }
     inline int port() const { return port_; }
     inline const std::string& path() const { return path_; }
     inline const std::string& method() const { return method_; }
@@ -146,9 +150,7 @@ public:
     inline const std::string& taskId() const { return task_id_; }
 
 private:
-    std::string name_;
-    std::string cluster_;
-    std::string host_;
+    std::string full_hostname_;
     int port_;
     std::string path_;
     std::string method_;
