@@ -1,6 +1,7 @@
 #pragma once
 #include <iostream>
 #include <stdio.h>
+#include <map>
 
 #include "envoy/http/filter.h"
 #include "common/buffer/buffer_impl.h"
@@ -200,6 +201,7 @@ private:
     std::vector<std::string> req_cb_keys;
     std::string flow_id_;
     std::string wf_template_id_;
+    std::map<std::string, std::string> saved_headers_;
 
 public:
     BavsFilter(BavsFilterConfigSharedPtr config, Upstream::ClusterManager& cluster_manager)

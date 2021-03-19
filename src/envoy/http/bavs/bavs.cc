@@ -69,6 +69,18 @@ FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, b
             flow_id_ = std::string(entry->value().getStringView());
             wf_template_id_ = std::string(wf_template_entry->value().getStringView());
             is_workflow_ = true;
+
+            for (auto iter = config_->headersToForward().begin(); 
+                      iter != config_->headersToForward().end(); 
+                      iter++ ) {
+                // check if *iter is in headers. if so, add to request_headers
+                const Http::HeaderEntry* entry = headers.get(Http::LowerCaseString(*iter));
+                std::cout << "forward " << *iter << std::endl;
+                if (entry != NULL && entry->value() != NULL) {
+                    saved_headers_[*iter] = std::string(entry->value().getStringView());
+                    std::cout << "Hello!" << std::endl;
+                }
+            }
         }
     }
     return FilterHeadersStatus::Continue;
@@ -87,13 +99,14 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
         return FilterHeadersStatus::Continue;
     }
 
-    std::cout << "Headers passed in" << std::endl; // KILLME:
+    std::cout << "\n\n\n\nHeaders passed in:" << std::endl; // KILLME:
     headers.iterate(
         [](const HeaderEntry& header) -> HeaderMap::Iterate {
             std::cout << header.key().getStringView() << ':' << header.value().getStringView() << std::endl;
             return HeaderMap::Iterate::Continue;
         }
     );
+    std::cout << "\n\n\n" << std::endl;
 
     // If bad response from upstream, don't send to next step in workflow.
     std::string status_str(headers.getStatusValue());
@@ -137,16 +150,9 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
                 }
             );
 
-            for (auto iter = config_->headersToForward().begin(); 
-                      iter != config_->headersToForward().end(); 
-                      iter++ ) {
-                // check if *iter is in headers. if so, add to request_headers
-                const Http::HeaderEntry* entry = headers.get(Http::LowerCaseString(*iter));
-                std::cout << "forward " << *iter << std::endl;
-                if (entry != NULL && entry->value() != NULL) {
-                    request_headers->setCopy(Http::LowerCaseString(*iter), entry->value().getStringView());
-                    std::cout << "Hello!" << std::endl;
-                }
+            for (const auto& saved_header : saved_headers_) {
+                std::cout << "forwarding!!" << *iter << std::endl;
+                request_headers->setCopy(Http::LowerCaseString(saved_header.first), saved_header.second);
             }
             
             // Inject tracing context
