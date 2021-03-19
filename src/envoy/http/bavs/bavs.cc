@@ -50,6 +50,7 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
               iter != proto_config.headers_to_forward().end();
               iter++) {
         headers_to_forward_.push_back(*iter);
+        std::cout << "config " << *iter << std::endl;
     }
 }
 
@@ -85,6 +86,14 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
     if (!is_workflow_) {
         return FilterHeadersStatus::Continue;
     }
+
+    std::cout << "Headers passed in" << std::endl; // KILLME:
+    headers.iterate(
+        [](const HeaderEntry& header) -> HeaderMap::Iterate {
+            std::cout << header.key().getStringView() << ':' << header.value().getStringView() << std::endl;
+            return HeaderMap::Iterate::Continue;
+        }
+    );
 
     // If bad response from upstream, don't send to next step in workflow.
     std::string status_str(headers.getStatusValue());
@@ -133,8 +142,10 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
                       iter++ ) {
                 // check if *iter is in headers. if so, add to request_headers
                 const Http::HeaderEntry* entry = headers.get(Http::LowerCaseString(*iter));
+                std::cout << "forward " << *iter << std::endl;
                 if (entry != NULL && entry->value() != NULL) {
                     request_headers->setCopy(Http::LowerCaseString(*iter), entry->value().getStringView());
+                    std::cout << "Hello!" << std::endl;
                 }
             }
             
