@@ -21,4 +21,5 @@ message BAVSFilter {
     string task_id = 5;
     string traffic_shadow_cluster = 6;
     string traffic_shadow_path = 7;
+    repeated string headers_to_forward = 8;
 }

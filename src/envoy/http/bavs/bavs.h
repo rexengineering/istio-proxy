@@ -1,6 +1,7 @@
 #pragma once
 #include <iostream>
 #include <stdio.h>
+#include <map>
 
 #include "envoy/http/filter.h"
 #include "common/buffer/buffer_impl.h"
@@ -172,6 +173,7 @@ public:
     virtual const std::string& taskId() { return task_id_; }
     virtual const std::string& trafficShadowCluster() { return traffic_shadow_cluster_; }
     virtual const std::string& trafficShadowPath() { return traffic_shadow_path_; }
+    virtual const std::vector<std::string>& headersToForward() { return headers_to_forward_; }
 
 
     virtual const std::vector<const UpstreamConfigSharedPtr>& forwards() { return forwards_; }
@@ -184,6 +186,7 @@ private:
     std::string task_id_;
     std::string traffic_shadow_cluster_;
     std::string traffic_shadow_path_;
+    std::vector<std::string> headers_to_forward_;
 };
 
 using BavsFilterConfigSharedPtr = std::shared_ptr<BavsFilterConfig>;
@@ -198,6 +201,7 @@ private:
     std::vector<std::string> req_cb_keys;
     std::string flow_id_;
     std::string wf_template_id_;
+    std::map<std::string, std::string> saved_headers_;
 
 public:
     BavsFilter(BavsFilterConfigSharedPtr config, Upstream::ClusterManager& cluster_manager)
