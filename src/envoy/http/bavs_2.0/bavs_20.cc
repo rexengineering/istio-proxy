@@ -32,12 +32,8 @@ namespace Http {
 
 void BavsFilter20::sendHeaders(bool end_stream) {
     if (!is_workflow_) return;
-
-    std::cout << "hello there" << std::endl;
-
     auto& active_span = decoder_callbacks_->activeSpan();
     active_span.injectContext(*(request_headers_.get()));
-    std::cout << "got this far" << std::endl;
 
     absl::string_view spanid;
     auto *entry = request_headers_->get(Http::LowerCaseString("x-b3-spanid"));
@@ -45,7 +41,6 @@ void BavsFilter20::sendHeaders(bool end_stream) {
         std::cout << "setting the value" << std::endl;
         spanid = entry->value().getStringView();
     }
-    std::cout << "done setting the value" << std::endl;
 
     // first notify caller that we gotchu buddy
     decoder_callbacks_->sendLocalReply(
@@ -81,6 +76,7 @@ void BavsFilter20::sendHeaders(bool end_stream) {
     }
     Http::RequestHeaderMapImpl& hdrs = callbacks_->requestHeaderMap();
     stream->sendHeaders(hdrs, end_stream);
+    std::cout << "returning now" << std::endl;
 }
 
 
