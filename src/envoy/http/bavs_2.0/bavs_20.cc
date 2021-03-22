@@ -76,7 +76,7 @@ void BavsFilter20::sendHeaders(bool end_stream) {
 
     callbacks_ = new BavsInboundCallbacks(
         callback_key_, std::move(request_headers_), cluster_manager_, config_,
-        saved_headers_, instance_id_, encoder_callbacks_);
+        saved_headers_, instance_id_, spanid_);
 
     Http::AsyncClient::Stream* stream;
     callbacks_->setStream(client->start(*callbacks_, AsyncClient::StreamOptions()));

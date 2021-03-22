@@ -15,6 +15,8 @@
 #include "common/common/random_generator.h"
 
 #include "src/envoy/http/bavs_2.0/newbavs.pb.h"
+#include "envoy/upstream/cluster_manager.h"
+#include "common/upstream/cluster_manager_impl.h"
 
 namespace Envoy {
 namespace Http {
@@ -118,7 +120,9 @@ public:
 
     }
 
-    void onData(Buffer::Instance&, bool) override {}
+    void onData(Buffer::Instance& data, bool) override {
+        std::cout << "Outboundcallbacks ondata: " << data.toString() << std::endl;
+    }
     void onTrailers(Http::ResponseTrailerMapPtr&&) override {}
     void onReset() override {}
     void onComplete() override {
@@ -200,10 +204,10 @@ public:
     BavsInboundCallbacks(std::string id, std::unique_ptr<Http::RequestHeaderMapImpl> headers,
             Upstream::ClusterManager& cm, BavsFilterConfigSharedPtr config,
             std::map<std::string, std::string> saved_headers, std::string instance_id,
-            Http::StreamEncoderFilterCallbacks* encoder_callbacks)
+            std::string spanid)
         : id_(id), headers_(std::move(headers)), cluster_manager_(cm), config_(config),
           saved_headers_(saved_headers), instance_id_(instance_id),
-          encoder_callbacks_(encoder_callbacks) {
+          spanid_(spanid) {
         cluster_manager_.storeCallbacksAndHeaders(id, this);
     }
 
@@ -243,18 +247,12 @@ public:
                 }
             );
 
-            std::cout << "created header map" << std::endl;
-
             for (const auto& saved_header : saved_headers_) {
                 std::cout << "forwarding!!" << *iter << std::endl;
                 request_headers->setCopy(Http::LowerCaseString(saved_header.first), saved_header.second);
             }
-            
             // Inject tracing context
-            Envoy::Tracing::Span& active_span = encoder_callbacks_->activeSpan();
-            active_span.injectContext(*(request_headers.get()));
-
-            std::cout << "injected context" << std::endl;
+            request_headers->setCopy(Http::LowerCaseString("x-b3-spanid"), spanid_);
 
             // Envoy speaks like "outbound|5000||secret-sauce.default.svc.cluster.local"
             std::string cluster_string = "outbound|" + std::to_string(upstream.port()) + "||" + upstream.full_hostname();
@@ -283,8 +281,6 @@ public:
                 continue;
             }
 
-            // std::cout << "creating "
-
             BavsOutboundCallbacks* callbacks = new BavsOutboundCallbacks(
                 req_cb_key, std::move(request_headers), cluster_manager_,
                 upstream.totalAttempts(), config_->flowdCluster(), cluster_string, config_->flowdPath(),
@@ -293,17 +289,79 @@ public:
                 *callbacks, AsyncClient::StreamOptions())
             );
 
-            // if (config_->trafficShadowCluster() != "") {
-            //     sendShadowHeaders(callbacks->requestHeaderMap());
-            // }
+            if (config_->trafficShadowCluster() != "") {
+                sendShadowHeaders(callbacks->requestHeaderMap());
+            }
             callbacks->getStream()->sendHeaders(callbacks->requestHeaderMap(), end_stream);
             req_cb_keys.push_back(req_cb_key);
         }
     }
 
-    void onData(Buffer::Instance& data, bool) override {
-      std::cout << "onData: " << data.toString() << std::endl;
+    void sendShadowHeaders(Http::RequestHeaderMapImpl& original_headers) {
+        // copy the headers
+        std::unique_ptr<RequestHeaderMapImpl> headers = Http::RequestHeaderMapImpl::create();
+        original_headers.iterate(
+            [&headers](const HeaderEntry& header) -> HeaderMap::Iterate {
+                RequestHeaderMapImpl* hdrs = headers.get();
+                std::string key(header.key().getStringView());
+                hdrs->addCopy(Http::LowerCaseString(key), header.value().getStringView());
+                return HeaderMap::Iterate::Continue;
+            }
+        );
+        headers->setCopy(Http::LowerCaseString("x-rexflow-original-host"), headers->getHostValue()); // host gets overwritten
+        headers->setCopy(Http::LowerCaseString("x-rexflow-original-path"), headers->getPathValue()); // host gets overwritten
+        headers->setPath(config_->trafficShadowPath());
+
+        Random::RandomGeneratorImpl rng;
+        std::string guid = rng.uuid();
+        Envoy::Upstream::CallbacksAndHeaders* callbacks = new Upstream::CallbacksAndHeaders(guid, std::move(headers), cluster_manager_);
+        Http::AsyncClient* client = nullptr;
+        try {
+            client = &(cluster_manager_.httpAsyncClientForCluster(config_->trafficShadowCluster()));
+        } catch(const EnvoyException&) {
+            std::cout << "Couldn't find Kafka cluster: " << config_->trafficShadowCluster() << std::endl;
+            return;
+        }
+        if (!client) return;
+        callbacks->setStream(client->start(*callbacks, AsyncClient::StreamOptions()));
+        if (callbacks->getStream()) {
+            callbacks->getStream()->sendHeaders(callbacks->requestHeaderMap(), false);
+        }
+        req_cb_keys.push_back(guid);
     }
+
+    void onData(Buffer::Instance& data, bool end_stream) override {
+        std::cout << "InboundCallbacks onData: " << data.toString() << std::endl;
+        request_data_.add(data);
+        if (!end_stream) return;
+
+        // TODO: fancy json processing
+
+        for (auto iter=req_cb_keys.begin(); iter != req_cb_keys.end(); iter++) {
+            Envoy::Upstream::AsyncStreamCallbacksAndHeaders* cb = 
+                cluster_manager_.getCallbacksAndHeaders(*iter);
+            if (cb != NULL) {
+                BavsOutboundCallbacks* bavs_cb = dynamic_cast<BavsOutboundCallbacks*>(cb);
+                if (bavs_cb) {
+                    // special method for the BavsOutboundCallbacks to enable retries, etc.
+                    bavs_cb->addData(request_data_);
+                }
+                Http::AsyncClient::Stream* stream(cb->getStream());
+                if (stream != NULL) {
+                    Buffer::OwnedImpl cpy;
+                    cpy.add(request_data_);
+                    stream->sendData(cpy, true);
+                } else {
+                    std::cout << "NULL HTTP stream pointer!" << std::endl;
+                    // FIXME: Do something useful here since the request failed. Maybe notify flowd?
+                }
+            } else {
+                std::cout << "NULL callback pointer!" << std::endl;
+                // FIXME: Do something useful here since the request failed. Maybe notify flowd?
+            }
+        }
+    }
+
     void onTrailers(Http::ResponseTrailerMapPtr&&) override {}
     void onReset() override {
     }
@@ -327,8 +385,9 @@ private:
     Http::AsyncClient::Stream* request_stream_;
     std::map<std::string, std::string> saved_headers_;
     std::string instance_id_;
-    Http::StreamEncoderFilterCallbacks* encoder_callbacks_;
+    std::string spanid_;
     std::vector<std::string> req_cb_keys;
+    Buffer::OwnedImpl request_data_;
 
 };
 
