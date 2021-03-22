@@ -99,15 +99,6 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
         return FilterHeadersStatus::Continue;
     }
 
-    std::cout << "\n\n\n\nHeaders passed in:" << std::endl; // KILLME:
-    headers.iterate(
-        [](const HeaderEntry& header) -> HeaderMap::Iterate {
-            std::cout << header.key().getStringView() << ':' << header.value().getStringView() << std::endl;
-            return HeaderMap::Iterate::Continue;
-        }
-    );
-    std::cout << "\n\n\n" << std::endl;
-
     // If bad response from upstream, don't send to next step in workflow.
     std::string status_str(headers.getStatusValue());
     int status = atoi(status_str.c_str());

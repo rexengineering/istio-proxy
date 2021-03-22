@@ -75,7 +75,8 @@ void BavsFilter20::sendHeaders(bool end_stream) {
     callback_key_ = rng.uuid();
 
     callbacks_ = new BavsInboundCallbacks(
-        callback_key_, std::move(request_headers_), cluster_manager_, config_);
+        callback_key_, std::move(request_headers_), cluster_manager_, config_,
+        saved_headers_, instance_id_, encoder_callbacks_);
 
     Http::AsyncClient::Stream* stream;
     callbacks_->setStream(client->start(*callbacks_, AsyncClient::StreamOptions()));
@@ -129,12 +130,15 @@ FilterHeadersStatus BavsFilter20::decodeHeaders(Http::RequestHeaderMap& headers,
                 iter++ ) {
         // check if *iter is in headers. if so, add to request_headers
         const Http::HeaderEntry* entry = headers.get(Http::LowerCaseString(*iter));
-        std::cout << "forward " << *iter << std::endl;
         if (entry != NULL && entry->value() != NULL) {
             saved_headers_[*iter] = std::string(entry->value().getStringView());
-            std::cout << "Hello!" << std::endl;
         }
     }
+
+    // if (config_->headerTransform()) {
+    //     transformHeaders();
+    // }
+
     successful_response_ = false;
     is_workflow_ = true;
     sendHeaders(end_stream);

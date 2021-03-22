@@ -198,11 +198,109 @@ private:
 class BavsInboundCallbacks : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
 public:
     BavsInboundCallbacks(std::string id, std::unique_ptr<Http::RequestHeaderMapImpl> headers,
-            Upstream::ClusterManager& cm, BavsFilterConfigSharedPtr config)
-        : id_(id), headers_(std::move(headers)), cluster_manager_(cm), config_(config) {
+            Upstream::ClusterManager& cm, BavsFilterConfigSharedPtr config,
+            std::map<std::string, std::string> saved_headers, std::string instance_id,
+            Http::StreamEncoderFilterCallbacks* encoder_callbacks)
+        : id_(id), headers_(std::move(headers)), cluster_manager_(cm), config_(config),
+          saved_headers_(saved_headers), instance_id_(instance_id),
+          encoder_callbacks_(encoder_callbacks) {
         cluster_manager_.storeCallbacksAndHeaders(id, this);
     }
-    void onHeaders(Http::ResponseHeaderMapPtr&&, bool) override {}
+
+    void onHeaders(Http::ResponseHeaderMapPtr&& headers, bool end_stream) override {
+        // If bad response from upstream, don't send to next step in workflow.
+        std::string status_str(headers->getStatusValue());
+        int status = atoi(status_str.c_str());
+        if (status < 200 || status >= 300) {
+            std::cout << "got bad status: " << status << std::endl;
+            // FIXME: Do something useful here, perhaps let Flowd know?
+            return;
+        }
+
+        const Http::HeaderEntry* content_type_entry(headers->get(Http::Headers::get().ContentType));
+        // Safe since onHeaders() can only be called once per http request
+        std::string content_type(((content_type_entry != NULL) && (content_type_entry->value() != NULL)) ?
+            content_type_entry->value().getStringView() : "application/json"
+        );
+        Random::RandomGeneratorImpl rng;
+        for (auto iter = config_->forwards().begin(); iter != config_->forwards().end(); iter++) {
+            const UpstreamConfig& upstream(**iter);
+            std::string req_cb_key = rng.uuid();
+
+            // Create headers to send over to the next place.
+            std::unique_ptr<RequestHeaderMapImpl> request_headers = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
+                {
+                    {Http::Headers::get().Method, upstream.method()},
+                    {Http::Headers::get().Host, upstream.full_hostname() + ":" + std::to_string(upstream.port())},
+                    {Http::Headers::get().Path, upstream.path()},
+                    {Http::Headers::get().ContentType, content_type},
+                    {Http::Headers::get().ContentLength, std::string(headers->getContentLengthValue())},
+                    {Http::LowerCaseString("x-rexflow-wf-id"), config_->wfIdValue()},
+                    {Http::LowerCaseString("x-rexflow-error-after"), std::to_string(upstream.totalAttempts())},
+                    {Http::LowerCaseString("x-rexflow-error-path"), config_->flowdPath()},
+                    {Http::LowerCaseString("x-rexflow-task-id"), upstream.taskId()},
+                    {Http::LowerCaseString("x-flow-id"), instance_id_}
+                }
+            );
+
+            std::cout << "created header map" << std::endl;
+
+            for (const auto& saved_header : saved_headers_) {
+                std::cout << "forwarding!!" << *iter << std::endl;
+                request_headers->setCopy(Http::LowerCaseString(saved_header.first), saved_header.second);
+            }
+            
+            // Inject tracing context
+            Envoy::Tracing::Span& active_span = encoder_callbacks_->activeSpan();
+            active_span.injectContext(*(request_headers.get()));
+
+            std::cout << "injected context" << std::endl;
+
+            // Envoy speaks like "outbound|5000||secret-sauce.default.svc.cluster.local"
+            std::string cluster_string = "outbound|" + std::to_string(upstream.port()) + "||" + upstream.full_hostname();
+            Http::AsyncClient* client = nullptr;
+            try {
+                client = &(cluster_manager_.httpAsyncClientForCluster(cluster_string));
+            } catch(const EnvoyException&) {
+                std::cout << "Could not find the cluster " << cluster_string << " on WF Instance " << instance_id_;
+                std::cout << "...sending traffic to Flowd instead." << std::endl;;
+
+                // Try to send traffic to Flowd so at least we save the state of the WF Instance.
+                try {
+                    client = &(cluster_manager_.httpAsyncClientForCluster(config_->flowdCluster()));
+                    request_headers->setCopy(Http::LowerCaseString("x-rexflow-original-path"), request_headers->getPathValue());
+                    request_headers->setCopy(Http::LowerCaseString("x-rexflow-original-host"), request_headers->getHostValue());
+                    request_headers->setPath(config_->flowdPath());
+                    cluster_string = config_->flowdCluster();
+                } catch(const EnvoyException&) {
+                    std::cout << "Could not connect to Flowd on WF Instance " << instance_id_ << std::endl;
+                    continue;
+                }
+            }
+            if (!client) {
+                // Completely out of luck.
+                std::cout << "Could not connect to Flowd on WF Instance " << instance_id_ << std::endl;
+                continue;
+            }
+
+            // std::cout << "creating "
+
+            BavsOutboundCallbacks* callbacks = new BavsOutboundCallbacks(
+                req_cb_key, std::move(request_headers), cluster_manager_,
+                upstream.totalAttempts(), config_->flowdCluster(), cluster_string, config_->flowdPath(),
+                *iter /* `*iter` is an UpstreamConfigSharedPtr*/);
+            callbacks->setStream(client->start(
+                *callbacks, AsyncClient::StreamOptions())
+            );
+
+            // if (config_->trafficShadowCluster() != "") {
+            //     sendShadowHeaders(callbacks->requestHeaderMap());
+            // }
+            callbacks->getStream()->sendHeaders(callbacks->requestHeaderMap(), end_stream);
+            req_cb_keys.push_back(req_cb_key);
+        }
+    }
+
     void onData(Buffer::Instance& data, bool) override {
       std::cout << "onData: " << data.toString() << std::endl;
     }
@@ -221,48 +319,19 @@ public:
     Http::AsyncClient::Stream* getStream() override { return request_stream_; }
 
 private:
+
     std::string id_;
     std::unique_ptr<Http::RequestHeaderMapImpl> headers_;
     Upstream::ClusterManager& cluster_manager_;
     BavsFilterConfigSharedPtr config_;
     Http::AsyncClient::Stream* request_stream_;
+    std::map<std::string, std::string> saved_headers_;
+    std::string instance_id_;
+    Http::StreamEncoderFilterCallbacks* encoder_callbacks_;
+    std::vector<std::string> req_cb_keys;
 
 };
 
-
-
-class BavsCallbacks : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
-public:
-    ~BavsCallbacks() = default;
-    BavsCallbacks(std::string id, std::unique_ptr<Http::RequestHeaderMapImpl> headers, Upstream::ClusterManager& cm) 
-        : id_(id), headers_(std::move(headers)), cluster_manager_(cm) {
-        cluster_manager_.storeCallbacksAndHeaders(id, this);
-    }
-
-    void onHeaders(Http::ResponseHeaderMapPtr&&, bool) override {}
-    void onData(Buffer::Instance& data, bool) override {
-      std::cout << "onData: " << data.toString() << std::endl;
-    }
-    void onTrailers(Http::ResponseTrailerMapPtr&&) override {}
-    void onReset() override {
-    }
-    void onComplete() override {
-        // remove ourself from the clusterManager
-        cluster_manager_.eraseCallbacksAndHeaders(id_);
-    }
-    Http::RequestHeaderMapImpl& requestHeaderMap() override {
-        return *(headers_.get());
-    }
-
-    void setStream(Http::AsyncClient::Stream* stream) override { request_stream_ = stream;}
-    Http::AsyncClient::Stream* getStream() override { return request_stream_; }
-
-private:
-    std::string id_;
-    std::unique_ptr<Http::RequestHeaderMapImpl> headers_;
-    Upstream::ClusterManager& cluster_manager_;
-    Http::AsyncClient::Stream* request_stream_;
-};
 
 class BavsFilter20 : public PassThroughFilter, public Logger::Loggable<Logger::Id::filter> {
 private:
