@@ -35,7 +35,7 @@ public:
     opts.always_print_primitive_fields = true;
     opts.preserve_proto_field_names = true;
     google::protobuf::util::MessageToJsonString(proto_config, &proto_config_json, opts);
-    std::cout << proto_config_json << "\n\n\n\n\n\nhello there" << std::endl;
+    std::cout << proto_config_json << std::endl;
     return createFilter(
       // Envoy::MessageUtil::downcastAndValidate<const bavs::BAVSFilter&>(
       //   proto_config, context.messageValidationVisitor()),
@@ -53,7 +53,6 @@ private:
   // Http::FilterFactoryCb createFilter(const bavs::BAVSFilter& proto_config, Server::Configuration::FactoryContext& context) {
   Http::FilterFactoryCb createFilter(Server::Configuration::FactoryContext& context) {
     return [&context](Http::FilterChainFactoryCallbacks& callbacks) -> void {
-      std::cout << "hi from NEW config \\n\n\n\n\n\n\n\n\n\n" << std::endl;
       // auto filter = new Http::BavsFilter(config, context.clusterManager());
       auto filter = new Http::BavsFilter20(context.clusterManager());
       callbacks.addStreamFilter(Http::StreamFilterSharedPtr(filter));

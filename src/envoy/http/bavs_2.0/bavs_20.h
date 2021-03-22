@@ -33,15 +33,12 @@ public:
     }
     void onTrailers(Http::ResponseTrailerMapPtr&&) override {}
     void onReset() override {
-      std::cout << "hi from onreset \n\n\n\n\n" << std::endl;
     }
     void onComplete() override {
-        std::cout << "hi from onComplete() \n\n\n" << std::endl;
         // remove ourself from the clusterManager
         cluster_manager_.eraseCallbacksAndHeaders(id_);
     }
     Http::RequestHeaderMapImpl& requestHeaderMap() override {
-        std::cout << "hi: " << headers_ <<  std::endl;
         return *(headers_.get());
     }
 
@@ -70,6 +67,7 @@ private:
     Buffer::OwnedImpl request_data_;
     BavsCallbacks* callbacks_;
     std::string callback_key_;
+    std::string spanid_;
 
     void sendHeaders(bool end_stream);
 

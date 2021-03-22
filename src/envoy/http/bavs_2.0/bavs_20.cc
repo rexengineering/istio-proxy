@@ -35,23 +35,10 @@ void BavsFilter20::sendHeaders(bool end_stream) {
     auto& active_span = decoder_callbacks_->activeSpan();
     active_span.injectContext(*(request_headers_.get()));
 
-    absl::string_view spanid;
     auto *entry = request_headers_->get(Http::LowerCaseString("x-b3-spanid"));
     if (entry) {
-        std::cout << "setting the value" << std::endl;
-        spanid = entry->value().getStringView();
+        spanid_ = entry->value().getStringView();
     }
-
-    // first notify caller that we gotchu buddy
-    decoder_callbacks_->sendLocalReply(
-        Envoy::Http::Code::Accepted,
-        "For my ally is the Force, and a powerful ally it is.",
-        [spanid] (ResponseHeaderMap& headers) -> void {
-            headers.setCopy(Http::LowerCaseString("x-b3-spanid"), spanid);
-        },
-        absl::nullopt,
-        ""
-    );
 
     Http::AsyncClient* client = nullptr;
     try {
@@ -76,7 +63,6 @@ void BavsFilter20::sendHeaders(bool end_stream) {
     }
     Http::RequestHeaderMapImpl& hdrs = callbacks_->requestHeaderMap();
     stream->sendHeaders(hdrs, end_stream);
-    std::cout << "returning now" << std::endl;
 }
 
 
@@ -99,7 +85,7 @@ FilterHeadersStatus BavsFilter20::decodeHeaders(Http::RequestHeaderMap& headers,
     successful_response_ = false;
     is_workflow_ = true;
     sendHeaders(end_stream);
-    return FilterHeadersStatus::Continue;
+    return FilterHeadersStatus::StopIteration;
 }
 
 FilterDataStatus BavsFilter20::decodeData(Buffer::Instance& data, bool end_stream) {
@@ -110,6 +96,17 @@ FilterDataStatus BavsFilter20::decodeData(Buffer::Instance& data, bool end_strea
         return FilterDataStatus::StopIterationAndBuffer;
     }
 
+    // first notify caller that we gotchu buddy
+    std::string temp = spanid_;
+    decoder_callbacks_->sendLocalReply(
+        Envoy::Http::Code::Accepted,
+        "For my ally is the Force, and a powerful ally it is.",
+        [temp] (ResponseHeaderMap& headers) -> void {
+            headers.setCopy(Http::LowerCaseString("x-b3-spanid"), temp);
+        },
+        absl::nullopt,
+        ""
+    );
 
     Http::AsyncClient::Stream* stream = callbacks_->getStream();
     if (!stream) {
@@ -117,9 +114,6 @@ FilterDataStatus BavsFilter20::decodeData(Buffer::Instance& data, bool end_strea
     }
 
     stream->sendData(request_data_, true);
-    // Buffer::OwnedImpl empty_buf;
-    // stream->sendData(empty_buf, true);
-    // std::cout << "done" << std::endl;
     return FilterDataStatus::StopIterationAndBuffer;
 }
 
