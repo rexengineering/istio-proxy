@@ -197,8 +197,35 @@ private:
 
 class BavsInboundCallbacks : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
 public:
+    BavsInboundCallbacks(std::string id, std::unique_ptr<Http::RequestHeaderMapImpl> headers,
+            Upstream::ClusterManager& cm, BavsFilterConfigSharedPtr config)
+        : id_(id), headers_(std::move(headers)), cluster_manager_(cm), config_(config) {
+        cluster_manager_.storeCallbacksAndHeaders(id, this);
+    }
+    void onHeaders(Http::ResponseHeaderMapPtr&&, bool) override {}
+    void onData(Buffer::Instance& data, bool) override {
+      std::cout << "onData: " << data.toString() << std::endl;
+    }
+    void onTrailers(Http::ResponseTrailerMapPtr&&) override {}
+    void onReset() override {
+    }
+    void onComplete() override {
+        // remove ourself from the clusterManager
+        cluster_manager_.eraseCallbacksAndHeaders(id_);
+    }
+    Http::RequestHeaderMapImpl& requestHeaderMap() override {
+        return *(headers_.get());
+    }
+
+    void setStream(Http::AsyncClient::Stream* stream) override { request_stream_ = stream;}
+    Http::AsyncClient::Stream* getStream() override { return request_stream_; }
 
 private:
+    std::string id_;
+    std::unique_ptr<Http::RequestHeaderMapImpl> headers_;
+    Upstream::ClusterManager& cluster_manager_;
+    BavsFilterConfigSharedPtr config_;
+    Http::AsyncClient::Stream* request_stream_;
 
 };
 
@@ -239,6 +266,9 @@ private:
 
 class BavsFilter20 : public PassThroughFilter, public Logger::Loggable<Logger::Id::filter> {
 private:
+    // void sendShadowHeaders(Http::RequestHeaderMapImpl& original_headers, bool);
+    // void sendShadowData(Buffer::Instance&, bool);
+    const BavsFilterConfigSharedPtr config_;
     Upstream::ClusterManager& cluster_manager_;
     bool is_workflow_;
     bool successful_response_;
@@ -250,19 +280,18 @@ private:
     std::string service_cluster_;
     std::unique_ptr<RequestHeaderMapImpl> request_headers_;
     Buffer::OwnedImpl request_data_;
-    BavsCallbacks* callbacks_;
+    BavsInboundCallbacks* callbacks_;
     std::string callback_key_;
     std::string spanid_;
 
+    // Envoy::Upstream::AsyncStreamCallbacksAndHeaders* shadow_callbacks_;
     void sendHeaders(bool end_stream);
 
 public:
-    BavsFilter20(Upstream::ClusterManager& cluster_manager)
-    : cluster_manager_(cluster_manager), is_workflow_(false), successful_response_(true),
+    BavsFilter20(BavsFilterConfigSharedPtr config, Upstream::ClusterManager& cluster_manager)
+    : config_(config), cluster_manager_(cluster_manager), is_workflow_(false), successful_response_(true),
       service_cluster_("inbound|5000||"),
       request_headers_(Http::RequestHeaderMapImpl::create()) {};
-      //inbound|5000||
-      //"outbound|5000||fake-api-63d700b2.default.svc.cluster.local"
 
     FilterDataStatus decodeData(Buffer::Instance&, bool);
     FilterDataStatus encodeData(Buffer::Instance&, bool);

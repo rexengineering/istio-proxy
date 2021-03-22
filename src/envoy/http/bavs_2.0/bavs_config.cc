@@ -37,8 +37,8 @@ public:
     google::protobuf::util::MessageToJsonString(proto_config, &proto_config_json, opts);
     std::cout << proto_config_json << std::endl;
     return createFilter(
-      // Envoy::MessageUtil::downcastAndValidate<const bavs::BAVSFilter&>(
-      //   proto_config, context.messageValidationVisitor()),
+      Envoy::MessageUtil::downcastAndValidate<const newbavs::NewBAVSFilter&>(
+        proto_config, context.messageValidationVisitor()),
       context
     );
   }
@@ -50,11 +50,12 @@ public:
   std::string name() const override { return "newbavs"; }
 
 private:
-  // Http::FilterFactoryCb createFilter(const bavs::BAVSFilter& proto_config, Server::Configuration::FactoryContext& context) {
-  Http::FilterFactoryCb createFilter(Server::Configuration::FactoryContext& context) {
-    return [&context](Http::FilterChainFactoryCallbacks& callbacks) -> void {
-      // auto filter = new Http::BavsFilter(config, context.clusterManager());
-      auto filter = new Http::BavsFilter20(context.clusterManager());
+  Http::FilterFactoryCb createFilter(const newbavs::NewBAVSFilter& proto_config, Server::Configuration::FactoryContext& context) {
+    Http::BavsFilterConfigSharedPtr config =
+      std::make_shared<Http::BavsFilterConfig>(Http::BavsFilterConfig(proto_config));
+
+    return [config, &context](Http::FilterChainFactoryCallbacks& callbacks) -> void {
+      auto filter = new Http::BavsFilter20(config, context.clusterManager());
       callbacks.addStreamFilter(Http::StreamFilterSharedPtr(filter));
     };
   }

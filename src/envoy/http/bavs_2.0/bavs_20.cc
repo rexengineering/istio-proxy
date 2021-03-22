@@ -30,6 +30,30 @@
 namespace Envoy {
 namespace Http {
 
+BavsFilterConfig::BavsFilterConfig(const newbavs::NewBAVSFilter& proto_config) {
+    forwards_.reserve(proto_config.forwards_size());
+    for (auto iter=proto_config.forwards().begin();
+         iter != proto_config.forwards().end();
+         iter++) {
+        UpstreamConfigSharedPtr forwardee(
+            std::make_shared<UpstreamConfig>(UpstreamConfig(*iter))
+        );
+        forwards_.push_back(forwardee);
+    }
+    wf_id_ = proto_config.wf_id();
+    flowd_cluster_ = proto_config.flowd_envoy_cluster();
+    flowd_path_ = proto_config.flowd_path();
+    task_id_ = proto_config.task_id();
+    traffic_shadow_cluster_ = proto_config.traffic_shadow_cluster();
+    traffic_shadow_path_ = proto_config.traffic_shadow_path();
+    for (auto iter=proto_config.headers_to_forward().begin();
+              iter != proto_config.headers_to_forward().end();
+              iter++) {
+        headers_to_forward_.push_back(*iter);
+    }
+}
+
+
 void BavsFilter20::sendHeaders(bool end_stream) {
     if (!is_workflow_) return;
     auto& active_span = decoder_callbacks_->activeSpan();
@@ -50,7 +74,8 @@ void BavsFilter20::sendHeaders(bool end_stream) {
     Random::RandomGeneratorImpl rng;
     callback_key_ = rng.uuid();
 
-    callbacks_ = new BavsCallbacks(callback_key_, std::move(request_headers_), cluster_manager_);
+    callbacks_ = new BavsInboundCallbacks(
+        callback_key_, std::move(request_headers_), cluster_manager_, config_);
 
     Http::AsyncClient::Stream* stream;
     callbacks_->setStream(client->start(*callbacks_, AsyncClient::StreamOptions()));
