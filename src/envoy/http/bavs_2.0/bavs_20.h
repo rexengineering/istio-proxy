@@ -68,6 +68,10 @@ private:
     std::string service_cluster_;
     std::unique_ptr<RequestHeaderMapImpl> request_headers_;
     Buffer::OwnedImpl request_data_;
+    BavsCallbacks* callbacks_;
+    std::string callback_key_;
+
+    void sendHeaders(bool end_stream);
 
 public:
     BavsFilter20(Upstream::ClusterManager& cluster_manager)

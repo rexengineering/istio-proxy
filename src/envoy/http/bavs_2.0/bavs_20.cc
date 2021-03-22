@@ -30,8 +30,61 @@
 namespace Envoy {
 namespace Http {
 
+void BavsFilter20::sendHeaders(bool end_stream) {
+    if (!is_workflow_) return;
 
-FilterHeadersStatus BavsFilter20::decodeHeaders(Http::RequestHeaderMap& headers, bool) {
+    std::cout << "hello there" << std::endl;
+
+    auto& active_span = decoder_callbacks_->activeSpan();
+    active_span.injectContext(*(request_headers_.get()));
+    std::cout << "got this far" << std::endl;
+
+    absl::string_view spanid;
+    auto *entry = request_headers_->get(Http::LowerCaseString("x-b3-spanid"));
+    if (entry) {
+        std::cout << "setting the value" << std::endl;
+        spanid = entry->value().getStringView();
+    }
+    std::cout << "done setting the value" << std::endl;
+
+    // first notify caller that we gotchu buddy
+    decoder_callbacks_->sendLocalReply(
+        Envoy::Http::Code::Accepted,
+        "For my ally is the Force, and a powerful ally it is.",
+        [spanid] (ResponseHeaderMap& headers) -> void {
+            headers.setCopy(Http::LowerCaseString("x-b3-spanid"), spanid);
+        },
+        absl::nullopt,
+        ""
+    );
+
+    Http::AsyncClient* client = nullptr;
+    try {
+        client = &(cluster_manager_.httpAsyncClientForCluster(service_cluster_));
+    } catch(const EnvoyException&) {
+        std::cout << "The cluster wasn't found" << std::endl;
+    }
+
+    Random::RandomGeneratorImpl rng;
+    callback_key_ = rng.uuid();
+
+    callbacks_ = new BavsCallbacks(callback_key_, std::move(request_headers_), cluster_manager_);
+
+    Http::AsyncClient::Stream* stream;
+    callbacks_->setStream(client->start(*callbacks_, AsyncClient::StreamOptions()));
+
+    // perform check to make sure it worked
+    stream = callbacks_->getStream();
+    if (!stream) {
+        std::cout << "Failed to connect to service." << std::endl;
+        return;
+    }
+    Http::RequestHeaderMapImpl& hdrs = callbacks_->requestHeaderMap();
+    stream->sendHeaders(hdrs, end_stream);
+}
+
+
+FilterHeadersStatus BavsFilter20::decodeHeaders(Http::RequestHeaderMap& headers, bool end_stream) {
     RequestHeaderMapImpl* temp = request_headers_.get();
     headers.iterate(
         [temp](const HeaderEntry& header) -> HeaderMap::Iterate {
@@ -45,64 +98,33 @@ FilterHeadersStatus BavsFilter20::decodeHeaders(Http::RequestHeaderMap& headers,
             return HeaderMap::Iterate::Continue;
         }
     );
-
-    request_headers_->iterate(
-        [](const HeaderEntry& header) -> HeaderMap::Iterate {
-            std::cout << header.key().getStringView() << ": " << header.value().getStringView() << std::endl;
-            return HeaderMap::Iterate::Continue;
-        }
-    );
-
     wf_id_ = "hello";
     instance_id_ = "hello";
     successful_response_ = false;
     is_workflow_ = true;
+    sendHeaders(end_stream);
     return FilterHeadersStatus::Continue;
 }
 
 FilterDataStatus BavsFilter20::decodeData(Buffer::Instance& data, bool end_stream) {
+    if (!is_workflow_) return FilterDataStatus::Continue;
+
     if (!end_stream) {
         request_data_.add(data);
-        return FilterDataStatus::Continue;
+        return FilterDataStatus::StopIterationAndBuffer;
     }
 
-    Http::AsyncClient* client = nullptr;
-    try {
-        client = &(cluster_manager_.httpAsyncClientForCluster(service_cluster_));
-    } catch(const EnvoyException&) {
-        std::cout << "The cluster wasn't found" << std::endl;
-    }
-    if (!client) return FilterDataStatus::Continue;
 
-    Random::RandomGeneratorImpl rng;
-    std::string callback_key = rng.uuid();
-
-    BavsCallbacks* callbacks = new BavsCallbacks(
-        callback_key, std::move(request_headers_), cluster_manager_);
-
-    Http::AsyncClient::Stream* stream;
-    callbacks->setStream(client->start(*callbacks, AsyncClient::StreamOptions()));
-
-    // perform check to make sure it worked
-    stream = callbacks->getStream();
-    if (!stream) {
-        std::cout << "Failed to connect to service." << std::endl;
-    }
-    Http::RequestHeaderMapImpl& hdrs = callbacks->requestHeaderMap();
-    stream->sendHeaders(hdrs, end_stream);
-
-    stream = callbacks->getStream();
+    Http::AsyncClient::Stream* stream = callbacks_->getStream();
     if (!stream) {
         std::cout << "Lost connection to service." << std::endl;
     }
 
-    std::cout << " sending data**" << request_data_.toString() << "**" << std::endl;
-    std::cout << " sending data**" << request_data_.toString() << "**" << std::endl;
     stream->sendData(request_data_, true);
     // Buffer::OwnedImpl empty_buf;
     // stream->sendData(empty_buf, true);
     // std::cout << "done" << std::endl;
-    return FilterDataStatus::Continue;
+    return FilterDataStatus::StopIterationAndBuffer;
 }
 
 FilterHeadersStatus BavsFilter20::encodeHeaders(Http::ResponseHeaderMap&, bool) {
