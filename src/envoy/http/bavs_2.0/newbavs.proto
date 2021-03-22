@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package newbavs;
+
+import "validate/validate.proto";
+
+message NewBAVSUpstream {
+    string full_hostname = 1 [(validate.rules).string.min_bytes = 1];
+    int32 port = 2;
+    string path = 3;
+    string method = 4;
+    int32 total_attempts = 5;
+    string task_id = 6;
+}
+
+message NewBAVSFilter {
+    repeated NewBAVSUpstream forwards = 1;
+    string wf_id = 2;
+    string flowd_envoy_cluster = 3;
+    string flowd_path = 4;
+    string task_id = 5;
+    string traffic_shadow_cluster = 6;
+    string traffic_shadow_path = 7;
+    repeated string headers_to_forward = 8;
+}
