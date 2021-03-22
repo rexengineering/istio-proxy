@@ -30,43 +30,40 @@
 namespace Envoy {
 namespace Http {
 
-FilterHeadersStatus BavsFilter20::decodeHeaders(Http::RequestHeaderMap& headers, bool) {
-    std::cout << "going to iterate" << std::endl;
-    std::unique_ptr<RequestHeaderMap> request_headers = Http::RequestHeaderMapImpl::create();
 
-    // RequestHeaderMapImpl* temp = static_cast<RequestHeaderMapImpl*>(request_headers.get());
-    std::cout << "request_headers are " << &request_headers << std::endl;
-    // headers.iterate(
-    //     [temp](const HeaderEntry& header) -> HeaderMap::Iterate {
-    //         std::string key_string(header.key().getStringView());
-    //         temp->setCopy(
-    //             Http::LowerCaseString(key_string), header.value().getStringView()
-    //         );
-    //         return HeaderMap::Iterate::Continue;
-    //     }
-    // );
-    request_headers->setCopy(Http::LowerCaseString("method"), headers.getMethodValue());
-    request_headers->setCopy(Http::LowerCaseString("content-type"), headers.getContentTypeValue());
-    std::cout << "done iterating " << std::endl;
-    message_.reset(new RequestMessageImpl(std::move(request_headers)));
+FilterHeadersStatus BavsFilter20::decodeHeaders(Http::RequestHeaderMap& headers, bool) {
+    RequestHeaderMapImpl* temp = request_headers_.get();
+    headers.iterate(
+        [temp](const HeaderEntry& header) -> HeaderMap::Iterate {
+            std::string key_string(header.key().getStringView());
+            if (key_string == "x-request-id" || key_string == "user-agent") {
+                return HeaderMap::Iterate::Continue;
+            }
+            temp->setCopy(
+                Http::LowerCaseString(key_string), header.value().getStringView()
+            );
+            return HeaderMap::Iterate::Continue;
+        }
+    );
+
+    request_headers_->iterate(
+        [](const HeaderEntry& header) -> HeaderMap::Iterate {
+            std::cout << header.key().getStringView() << ": " << header.value().getStringView() << std::endl;
+            return HeaderMap::Iterate::Continue;
+        }
+    );
 
     wf_id_ = "hello";
     instance_id_ = "hello";
     successful_response_ = false;
     is_workflow_ = true;
-    std::cout << "hello there" << std::endl;
     return FilterHeadersStatus::Continue;
 }
 
-static BavsCallbacks *callbacks = new BavsCallbacks();
-
 FilterDataStatus BavsFilter20::decodeData(Buffer::Instance& data, bool end_stream) {
     if (!end_stream) {
-        message_->body().add(data);
+        request_data_.add(data);
         return FilterDataStatus::Continue;
-    }
-    for (const auto& pair : cluster_manager_.clusters()) {
-        std::cout << pair.first << std::endl;
     }
 
     Http::AsyncClient* client = nullptr;
@@ -77,13 +74,34 @@ FilterDataStatus BavsFilter20::decodeData(Buffer::Instance& data, bool end_strea
     }
     if (!client) return FilterDataStatus::Continue;
 
-    std::cout << "got the client, now sending the message" << std::endl;
-    // callbacks = new BavsCallbacks();
-    client->send(std::move(message_), *callbacks, AsyncClient::RequestOptions());
-    std::cout << "sent the message." << std::endl;
+    Random::RandomGeneratorImpl rng;
+    std::string callback_key = rng.uuid();
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+    BavsCallbacks* callbacks = new BavsCallbacks(
+        callback_key, std::move(request_headers_), cluster_manager_);
 
+    Http::AsyncClient::Stream* stream;
+    callbacks->setStream(client->start(*callbacks, AsyncClient::StreamOptions()));
+
+    // perform check to make sure it worked
+    stream = callbacks->getStream();
+    if (!stream) {
+        std::cout << "Failed to connect to service." << std::endl;
+    }
+    Http::RequestHeaderMapImpl& hdrs = callbacks->requestHeaderMap();
+    stream->sendHeaders(hdrs, end_stream);
+
+    stream = callbacks->getStream();
+    if (!stream) {
+        std::cout << "Lost connection to service." << std::endl;
+    }
+
+    std::cout << " sending data**" << request_data_.toString() << "**" << std::endl;
+    std::cout << " sending data**" << request_data_.toString() << "**" << std::endl;
+    stream->sendData(request_data_, true);
+    // Buffer::OwnedImpl empty_buf;
+    // stream->sendData(empty_buf, true);
+    // std::cout << "done" << std::endl;
     return FilterDataStatus::Continue;
 }
 
@@ -91,9 +109,8 @@ FilterHeadersStatus BavsFilter20::encodeHeaders(Http::ResponseHeaderMap&, bool) 
     return FilterHeadersStatus::Continue;
 }
 
-FilterDataStatus BavsFilter20::encodeData(Buffer::Instance& data, bool end_stream) {
+FilterDataStatus BavsFilter20::encodeData(Buffer::Instance&, bool) {
     // intercepts the response data
-    std::cout << "encodeData: " << data.toString() << end_stream << std::endl;
     return FilterDataStatus::Continue;
 }
 
