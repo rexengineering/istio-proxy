@@ -274,7 +274,6 @@ private:
     bool successful_response_;
     // std::vector<std::string> req_cb_keys_;
     std::string instance_id_;
-    std::string wf_id_;
     std::unique_ptr<RequestMessageImpl> message_;
     std::map<std::string, std::string> saved_headers_;
     std::string service_cluster_;

@@ -92,6 +92,23 @@ void BavsFilter20::sendHeaders(bool end_stream) {
 
 
 FilterHeadersStatus BavsFilter20::decodeHeaders(Http::RequestHeaderMap& headers, bool end_stream) {
+    const Http::HeaderEntry* task_entry = headers.get(Http::LowerCaseString("x-rexflow-task-id"));
+    if (task_entry == NULL || (task_entry->value() != NULL && task_entry->value().getStringView() != config_->taskId())) {
+        return FilterHeadersStatus::Continue;
+    }
+
+    const Http::HeaderEntry* wf_id_entry = headers.get(Http::LowerCaseString("x-rexflow-wf-id"));
+    if (wf_id_entry == NULL || wf_id_entry->value() == NULL ||
+            (wf_id_entry->value().getStringView() != config_->wfIdValue())) {
+        return FilterHeadersStatus::Continue;
+    }
+
+    const Http::HeaderEntry* instance_entry = headers.get(Http::LowerCaseString("x-flow-id"));
+    if ((instance_entry == NULL) || (instance_entry->value() == NULL)) {
+        return FilterHeadersStatus::Continue;
+    }
+    instance_id_ = instance_entry->value().getStringView();
+
     RequestHeaderMapImpl* temp = request_headers_.get();
     headers.iterate(
         [temp](const HeaderEntry& header) -> HeaderMap::Iterate {
@@ -102,11 +119,22 @@ FilterHeadersStatus BavsFilter20::decodeHeaders(Http::RequestHeaderMap& headers,
             temp->setCopy(
                 Http::LowerCaseString(key_string), header.value().getStringView()
             );
-            return HeaderMap::Iterate::Continue;
+            return HeaderMap::Iterate::Continue; // for lambda function, not the whole thing.
         }
     );
-    wf_id_ = "hello";
-    instance_id_ = "hello";
+
+    // Now, save headers that we need to propagate to the next service in line.
+    for (auto iter = config_->headersToForward().begin(); 
+                iter != config_->headersToForward().end(); 
+                iter++ ) {
+        // check if *iter is in headers. if so, add to request_headers
+        const Http::HeaderEntry* entry = headers.get(Http::LowerCaseString(*iter));
+        std::cout << "forward " << *iter << std::endl;
+        if (entry != NULL && entry->value() != NULL) {
+            saved_headers_[*iter] = std::string(entry->value().getStringView());
+            std::cout << "Hello!" << std::endl;
+        }
+    }
     successful_response_ = false;
     is_workflow_ = true;
     sendHeaders(end_stream);
