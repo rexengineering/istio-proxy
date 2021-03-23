@@ -18,6 +18,9 @@
 #include "envoy/upstream/cluster_manager.h"
 #include "common/upstream/cluster_manager_impl.h"
 
+#include "common/json/json_loader.h"
+#include "envoy/json/json_object.h"
+
 namespace Envoy {
 namespace Http {
 

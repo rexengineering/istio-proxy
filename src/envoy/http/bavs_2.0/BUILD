@@ -29,6 +29,8 @@ envoy_cc_library(
         "@envoy//source/common/http:message_lib",
         "@envoy//include/envoy/http:async_client_interface",
         "@envoy//source/extensions/filters/http/common:pass_through_filter_lib",
+        "@envoy//include/envoy/json:json_object_interface",
+        "@envoy//source/common/json:json_loader_lib",
     ],
 )
 
