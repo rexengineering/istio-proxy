@@ -24,6 +24,31 @@
 namespace Envoy {
 namespace Http {
 
+std::string process_json_input(std::string& input_str,
+        std::vector<std::pair<std::string, std::string>> input_params) {
+
+    std::cout << " going to parse " << std::endl;
+    // Json::ObjectSharedPtr json_obj = Json::Factory::loadFromString(input_str);
+    Json::Factory::loadFromString(input_str);
+    std::cout << "just parsed" << std::endl;
+
+    std::cout << input_str << std::endl;
+    for (auto const& param : input_params) {
+        std::cout << "param: " << param.first << " " << param.second << std::endl;
+        // if (!json_obj->hasObject(pair.first)) {
+        //     std::cout << pair.first << " not found!!!\n" << std::endl;
+        //     continue;
+        // }
+        // std::cout << "found " << pair.first << std::endl;
+        // Json::ObjectSharedPtr cur_obj = json_obj->getObject(pair.first);
+
+        // std::cout << "asJsonString(): " << cur_obj->asJsonString() << std::endl;
+    }
+
+    return "{\"val\":12345}";
+}
+
+
 BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
     forwards_.reserve(proto_config.forwards_size());
     for (auto iter=proto_config.forwards().begin();
@@ -40,11 +65,8 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
     task_id_ = proto_config.task_id();
     traffic_shadow_cluster_ = proto_config.traffic_shadow_cluster();
     traffic_shadow_path_ = proto_config.traffic_shadow_path();
-    for (auto iter=proto_config.headers_to_forward().begin();
-              iter != proto_config.headers_to_forward().end();
-              iter++) {
-        headers_to_forward_.push_back(*iter);
-        std::cout << "config " << *iter << std::endl;
+    for (const std::string& header : proto_config.headers_to_forward()) {
+        headers_to_forward_.push_back(header);
     }
     for (auto param : proto_config.input_params()) {
         input_params_.push_back(std::make_pair(param.name(), param.value()));
@@ -54,226 +76,146 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
     }
 }
 
-FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, bool) {
-    const Http::HeaderEntry* entry = headers.get(Http::LowerCaseString("x-rexflow-task-id"));
-    if (entry == NULL || (entry->value() != NULL && entry->value().getStringView() != config_->taskId())) {
+FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, bool end_stream) {
+    const Http::HeaderEntry* task_entry = headers.get(Http::LowerCaseString("x-rexflow-task-id"));
+    if (task_entry == NULL || (task_entry->value() != NULL && task_entry->value().getStringView() != config_->taskId())) {
         return FilterHeadersStatus::Continue;
     }
 
-    entry = headers.get(Http::LowerCaseString("x-flow-id"));
-    if ((entry != NULL) && (entry->value() != NULL)) {
-        const Http::HeaderEntry* wf_template_entry = headers.get(Http::LowerCaseString("x-rexflow-wf-id"));
-        if (wf_template_entry != NULL && wf_template_entry->value() != NULL &&
-                (wf_template_entry->value().getStringView() == config_->wfIdValue())) {
-            // FIXME: flow_id is a WF Instance id, and wf_id is a Workflow Template ID. Confusing.
-            flow_id_ = std::string(entry->value().getStringView());
-            wf_template_id_ = std::string(wf_template_entry->value().getStringView());
-            is_workflow_ = true;
 
-            for (auto iter = config_->headersToForward().begin(); 
-                      iter != config_->headersToForward().end(); 
-                      iter++ ) {
-                // check if *iter is in headers. if so, add to request_headers
-                const Http::HeaderEntry* entry = headers.get(Http::LowerCaseString(*iter));
-                std::cout << "forward " << *iter << std::endl;
-                if (entry != NULL && entry->value() != NULL) {
-                    saved_headers_[*iter] = std::string(entry->value().getStringView());
-                    std::cout << "Hello!" << std::endl;
-                }
-            }
-        }
-    }
-    return FilterHeadersStatus::Continue;
-}
-
-FilterDataStatus BavsFilter::decodeData(Buffer::Instance&, bool end_stream) {
-    if (end_stream) {
-        // TODO: if this is the end of the stream, return a 200 to the requestor.
-    }
-    for (const auto& pair : config_->inputParams()) {
-        std::cout << pair.first << ' ' << pair.second << std::endl;
-    }
-    return FilterDataStatus::Continue;
-}
-
-FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, bool end_stream) {
-    // intercepts the Response headers.
-    if (!is_workflow_) {
+    const Http::HeaderEntry* wf_id_entry = headers.get(Http::LowerCaseString("x-rexflow-wf-id"));
+    if (wf_id_entry == NULL || wf_id_entry->value() == NULL ||
+            (wf_id_entry->value().getStringView() != config_->wfIdValue())) {
         return FilterHeadersStatus::Continue;
     }
 
-    std::cout << "\n\n\n\nHeaders passed in:" << std::endl; // KILLME:
+    const Http::HeaderEntry* instance_entry = headers.get(Http::LowerCaseString("x-flow-id"));
+    if ((instance_entry == NULL) || (instance_entry->value() == NULL)) {
+        return FilterHeadersStatus::Continue;
+    }
+    instance_id_ = instance_entry->value().getStringView();
+
+    RequestHeaderMapImpl* temp = request_headers_.get();
     headers.iterate(
-        [](const HeaderEntry& header) -> HeaderMap::Iterate {
-            std::cout << header.key().getStringView() << ':' << header.value().getStringView() << std::endl;
-            return HeaderMap::Iterate::Continue;
+        [temp](const HeaderEntry& header) -> HeaderMap::Iterate {
+            std::string key_string(header.key().getStringView());
+            if (key_string == "x-request-id" || key_string == "user-agent") {
+                return HeaderMap::Iterate::Continue;
+            }
+            temp->setCopy(
+                Http::LowerCaseString(key_string), header.value().getStringView()
+            );
+            return HeaderMap::Iterate::Continue; // for lambda function, not the whole thing.
         }
     );
-    std::cout << "\n\n\n" << std::endl;
 
-    // If bad response from upstream, don't send to next step in workflow.
-    std::string status_str(headers.getStatusValue());
-    int status = atoi(status_str.c_str());
-    if (status < 200 || status >= 300) {
-        std::cout << "got bad status: " << status << std::endl;
-        // FIXME: Do something useful here, perhaps let Flowd know?
-        successful_response_ = false;
-        return FilterHeadersStatus::Continue;
-    }
-
-    if (req_cb_keys.empty()) {
-        const Http::HeaderEntry* entry(headers.get(Http::Headers::get().ContentType));
-        // FIXME:  The following assumes JSON content if it can't find a content
-        // type in the initial batch of headers.  What if content type is sent in
-        // a later invocation of encodeHeaders()?
-        std::string content_type(
-            ((entry != NULL) && (entry->value() != NULL)) ?
-                entry->value().getStringView() :
-                "application/json"
-        );
-        req_cb_keys.reserve(config_->forwards().size());
-        Random::RandomGeneratorImpl rng;
-        for (auto iter = config_->forwards().begin(); iter != config_->forwards().end(); iter++) {
-            const UpstreamConfig& upstream(**iter);
-            std::string req_cb_key = rng.uuid();
-
-            // Create headers to send over to the next place.
-            std::unique_ptr<RequestHeaderMapImpl> request_headers = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
-                {
-                    {Http::Headers::get().Method, upstream.method()},
-                    {Http::Headers::get().Host, upstream.full_hostname() + ":" + std::to_string(upstream.port())},
-                    {Http::Headers::get().Path, upstream.path()},
-                    {Http::Headers::get().ContentType, content_type},
-                    {Http::Headers::get().ContentLength, std::string(headers.getContentLengthValue())},
-                    {Http::LowerCaseString("x-rexflow-wf-id"), wf_template_id_},
-                    {Http::LowerCaseString("x-rexflow-error-after"), std::to_string(upstream.totalAttempts())},
-                    {Http::LowerCaseString("x-rexflow-error-path"), config_->flowdPath()},
-                    {Http::LowerCaseString("x-rexflow-task-id"), upstream.taskId()},
-                    {Http::LowerCaseString("x-flow-id"), flow_id_}
-                }
-            );
-
-            for (const auto& saved_header : saved_headers_) {
-                std::cout << "forwarding!!" << *iter << std::endl;
-                request_headers->setCopy(Http::LowerCaseString(saved_header.first), saved_header.second);
-            }
-            
-            // Inject tracing context
-            Envoy::Tracing::Span& active_span = encoder_callbacks_->activeSpan();
-            active_span.injectContext(*(request_headers.get()));
-
-            const auto trace_hdr = request_headers->get(Http::LowerCaseString("x-b3-traceid"));
-            if (trace_hdr) {
-                // return the trace-id to the caller
-                headers.setCopy(Http::LowerCaseString("x-b3-traceid"), std::string(trace_hdr->value().getStringView()));
-            }
-
-            // Envoy speaks like "outbound|5000||secret-sauce.default.svc.cluster.local"
-            std::string cluster_string = "outbound|" + std::to_string(upstream.port()) + "||" + upstream.full_hostname();
-            Http::AsyncClient* client = nullptr;
-            try {
-                client = &(cluster_manager_.httpAsyncClientForCluster(cluster_string));
-            } catch(const EnvoyException&) {
-                std::cout << "Could not find the cluster " << cluster_string << " on WF Instance " << flow_id_;
-                std::cout << "...sending traffic to Flowd instead." << std::endl;;
-
-                // Try to send traffic to Flowd so at least we save the state of the WF Instance.
-                try {
-                    client = &(cluster_manager_.httpAsyncClientForCluster(config_->flowdCluster()));
-                    request_headers->setCopy(Http::LowerCaseString("x-rexflow-original-path"), request_headers->getPathValue());
-                    request_headers->setCopy(Http::LowerCaseString("x-rexflow-original-host"), request_headers->getHostValue());
-                    request_headers->setPath(config_->flowdPath());
-                    cluster_string = config_->flowdCluster();
-                } catch(const EnvoyException&) {
-                    std::cout << "Could not connect to Flowd on WF Instance " << flow_id_ << std::endl;
-                    continue;
-                }
-            }
-            if (!client) {
-                // Completely out of luck.
-                std::cout << "Could not connect to Flowd on WF Instance " << flow_id_ << std::endl;
-                continue;
-            }
-
-            BavsRetriableCallbacks* callbacks = new BavsRetriableCallbacks(req_cb_key, std::move(request_headers), cluster_manager_,
-                    upstream.totalAttempts(), config_->flowdCluster(), cluster_string, config_->flowdPath());
-            callbacks->setStream(client->start(
-                *callbacks, AsyncClient::StreamOptions())
-            );
-
-            if (config_->trafficShadowCluster() != "") {
-                sendShadowHeaders(callbacks->requestHeaderMap());
-            }
-            callbacks->getStream()->sendHeaders(callbacks->requestHeaderMap(), end_stream);
-            req_cb_keys.push_back(req_cb_key);
+    // Now, save headers that we need to propagate to the next service in line.
+    for (auto iter = config_->headersToForward().begin(); 
+                iter != config_->headersToForward().end(); 
+                iter++ ) {
+        // check if *iter is in headers. if so, add to request_headers
+        const Http::HeaderEntry* entry = headers.get(Http::LowerCaseString(*iter));
+        if (entry != NULL && entry->value() != NULL) {
+            saved_headers_[*iter] = std::string(entry->value().getStringView());
         }
     }
-    return FilterHeadersStatus::Continue;
+
+    successful_response_ = false;
+    is_workflow_ = true;
+    if (end_stream) sendHeaders(true);
+    return FilterHeadersStatus::StopIteration;
 }
 
-void BavsFilter::sendShadowHeaders(Http::RequestHeaderMapImpl& original_headers) {
-    // copy the headers
-    std::unique_ptr<RequestHeaderMapImpl> headers = Http::RequestHeaderMapImpl::create();
-    original_headers.iterate(
-        [&headers](const HeaderEntry& header) -> HeaderMap::Iterate {
-            RequestHeaderMapImpl* hdrs = headers.get();
-            std::string key(header.key().getStringView());
-            hdrs->addCopy(Http::LowerCaseString(key), header.value().getStringView());
-            return HeaderMap::Iterate::Continue;
-        }
-    );
-    headers->setCopy(Http::LowerCaseString("x-rexflow-original-host"), headers->getHostValue()); // host gets overwritten
-    headers->setCopy(Http::LowerCaseString("x-rexflow-original-path"), headers->getPathValue()); // host gets overwritten
-    headers->setPath(config_->trafficShadowPath());
+void BavsFilter::sendHeaders(bool end_stream) {
+    if (!is_workflow_) return;
+    auto& active_span = decoder_callbacks_->activeSpan();
+    active_span.injectContext(*(request_headers_.get()));
 
-    Random::RandomGeneratorImpl rng;
-    std::string guid = rng.uuid();
-    Envoy::Upstream::CallbacksAndHeaders* callbacks = new Upstream::CallbacksAndHeaders(guid, std::move(headers), cluster_manager_);
+    auto *entry = request_headers_->get(Http::LowerCaseString("x-b3-spanid"));
+    if (entry) {
+        spanid_ = entry->value().getStringView();
+    }
+
     Http::AsyncClient* client = nullptr;
     try {
-        client = &(cluster_manager_.httpAsyncClientForCluster(config_->trafficShadowCluster()));
+        client = &(cluster_manager_.httpAsyncClientForCluster(service_cluster_));
     } catch(const EnvoyException&) {
-        std::cout << "Couldn't find Kafka cluster: " << config_->trafficShadowCluster() << std::endl;
+        std::cout << "The cluster wasn't found" << std::endl;
+    }
+
+    Random::RandomGeneratorImpl rng;
+    callback_key_ = rng.uuid();
+
+    callbacks_ = new BavsInboundCallbacks(
+        callback_key_, std::move(request_headers_), cluster_manager_, config_,
+        saved_headers_, instance_id_, spanid_);
+
+    Http::AsyncClient::Stream* stream;
+    callbacks_->setStream(client->start(*callbacks_, AsyncClient::StreamOptions()));
+
+    // perform check to make sure it worked
+    stream = callbacks_->getStream();
+    if (!stream) {
+        std::cout << "Failed to connect to service." << std::endl;
         return;
     }
-    if (!client) return;
-    callbacks->setStream(client->start(*callbacks, AsyncClient::StreamOptions()));
-    if (callbacks->getStream()) {
-        callbacks->getStream()->sendHeaders(callbacks->requestHeaderMap(), false);
-    }
-    req_cb_keys.push_back(guid);
-
+    Http::RequestHeaderMapImpl& hdrs = callbacks_->requestHeaderMap();
+    stream->sendHeaders(hdrs, end_stream);
 }
 
-FilterDataStatus BavsFilter::encodeData(Buffer::Instance& data, bool end_stream) {
-    // intercepts the response data
-    if (!is_workflow_ || !successful_response_) {
-        return FilterDataStatus::Continue;
+
+FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream) {
+    if (!is_workflow_) return FilterDataStatus::Continue;
+
+    if (!end_stream) {
+        request_data_.add(data);
+        return FilterDataStatus::StopIterationAndBuffer;
     }
 
-    for (auto iter=req_cb_keys.begin(); iter != req_cb_keys.end(); iter++) {
-        Envoy::Upstream::AsyncStreamCallbacksAndHeaders* cb = cluster_manager_.getCallbacksAndHeaders(*iter);
-        if (cb != NULL) {
+    std::cout << "here i am, config is at " << config_ << std::endl;
+    std::cout << "flowd cluster: " << config_->flowdCluster() << std::endl;// << " and protoconfig at " << &(config_->proto_config()) << std::endl;
+    if (!config_->inputParams().empty()) {
+        std::cout << "got through it" << std::endl;
+        request_headers_->setContentType("application/json");
+        std::string raw_input(request_data_.toString());
+        request_data_.drain(request_data_.length());
 
-            BavsRetriableCallbacks* bavs_cb = dynamic_cast<BavsRetriableCallbacks*>(cb);
-            if (bavs_cb) {
-                bavs_cb->addData(data);
-            }
+        std::string new_input = process_json_input(raw_input, config_->inputParams());
 
-            Http::AsyncClient::Stream* stream(cb->getStream());
-            if (stream != NULL) {
-                Buffer::OwnedImpl cpy{data};
-                stream->sendData(cpy, end_stream);
-            } else {
-                std::cout << "NULL HTTP stream pointer!" << std::endl;
-                // FIXME: Do something useful here since the request failed. Maybe notify flowd?
-            }
-        } else {
-            std::cout << "NULL callback pointer!" << std::endl;
-            // FIXME: Do something useful here since the request failed. Maybe notify flowd?
-        }
+        request_data_.add(new_input);
+        request_headers_->setContentLength(std::to_string(request_data_.length()));
     }
+
+    sendHeaders(false);
+
+    // first notify caller that we gotchu buddy
+    std::string temp = spanid_;
+    decoder_callbacks_->sendLocalReply(
+        Envoy::Http::Code::Accepted,
+        "For my ally is the Force, and a powerful ally it is.",
+        [temp] (ResponseHeaderMap& headers) -> void {
+            headers.setCopy(Http::LowerCaseString("x-b3-spanid"), temp);
+        },
+        absl::nullopt,
+        ""
+    );
+
+    Http::AsyncClient::Stream* stream = callbacks_->getStream();
+    if (!stream) {
+        std::cout << "Lost connection to service." << std::endl;
+    }
+
+    stream->sendData(request_data_, true);
+    return FilterDataStatus::StopIterationAndBuffer;
+}
+
+FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap&, bool) {
+    return FilterHeadersStatus::Continue;
+}
+
+FilterDataStatus BavsFilter::encodeData(Buffer::Instance&, bool) {
     return FilterDataStatus::Continue;
+    // intercepts the response data
 }
 
 } // namespace Http

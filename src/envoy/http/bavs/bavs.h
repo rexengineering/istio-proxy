@@ -509,25 +509,60 @@ private:
 
 class BavsFilter : public PassThroughFilter, public Logger::Loggable<Logger::Id::filter> {
 private:
-    void sendShadowHeaders(Http::RequestHeaderMapImpl& original_headers);
+    // void sendShadowHeaders(Http::RequestHeaderMapImpl& original_headers, bool);
+    // void sendShadowData(Buffer::Instance&, bool);
     const BavsFilterConfigSharedPtr config_;
     Upstream::ClusterManager& cluster_manager_;
     bool is_workflow_;
     bool successful_response_;
-    std::vector<std::string> req_cb_keys;
-    std::string flow_id_;
-    std::string wf_template_id_;
+    // std::vector<std::string> req_cb_keys_;
+    std::string instance_id_;
+    std::unique_ptr<RequestMessageImpl> message_;
     std::map<std::string, std::string> saved_headers_;
+    std::string service_cluster_;
+    std::unique_ptr<RequestHeaderMapImpl> request_headers_;
+    Buffer::OwnedImpl request_data_;
+    BavsInboundCallbacks* callbacks_;
+    std::string callback_key_;
+    std::string spanid_;
+
+    // Envoy::Upstream::AsyncStreamCallbacksAndHeaders* shadow_callbacks_;
+    void sendHeaders(bool end_stream);
 
 public:
     BavsFilter(BavsFilterConfigSharedPtr config, Upstream::ClusterManager& cluster_manager)
-    : config_(config), cluster_manager_(cluster_manager), is_workflow_(false), successful_response_(true) {};
+    : config_(config), cluster_manager_(cluster_manager), is_workflow_(false), successful_response_(true),
+      service_cluster_("inbound|5000||"),
+      request_headers_(Http::RequestHeaderMapImpl::create()) {};
 
     FilterDataStatus decodeData(Buffer::Instance&, bool);
     FilterDataStatus encodeData(Buffer::Instance&, bool);
     FilterHeadersStatus decodeHeaders(Http::RequestHeaderMap&, bool);
     FilterHeadersStatus encodeHeaders(Http::ResponseHeaderMap&, bool);
 };
+
+
+// class BavsFilter : public PassThroughFilter, public Logger::Loggable<Logger::Id::filter> {
+// private:
+//     void sendShadowHeaders(Http::RequestHeaderMapImpl& original_headers);
+//     const BavsFilterConfigSharedPtr config_;
+//     Upstream::ClusterManager& cluster_manager_;
+//     bool is_workflow_;
+//     bool successful_response_;
+//     std::vector<std::string> req_cb_keys;
+//     std::string flow_id_;
+//     std::string wf_template_id_;
+//     std::map<std::string, std::string> saved_headers_;
+
+// public:
+//     BavsFilter(BavsFilterConfigSharedPtr config, Upstream::ClusterManager& cluster_manager)
+//     : config_(config), cluster_manager_(cluster_manager), is_workflow_(false), successful_response_(true) {};
+
+//     FilterDataStatus decodeData(Buffer::Instance&, bool);
+//     FilterDataStatus encodeData(Buffer::Instance&, bool);
+//     FilterHeadersStatus decodeHeaders(Http::RequestHeaderMap&, bool);
+//     FilterHeadersStatus encodeHeaders(Http::ResponseHeaderMap&, bool);
+// };
 
 } // namespace Http
 } // namespace Envoy
