@@ -31,11 +31,11 @@ namespace Envoy {
 namespace Http {
 
 std::string process_json_input(std::string& input_str,
-        const std::map<std::string, std::string>& params) {
+        const std::vector<std::pair<std::string, std::string>>& params) {
 
-    // std::cout << " going to parse " << std::endl;
-    // Json::ObjectSharedPtr json_obj = Json::Factory::loadFromString(input_str);
-    // std::cout << "just parsed" << std::endl;
+    std::cout << " going to parse " << std::endl;
+    Json::ObjectSharedPtr json_obj = Json::Factory::loadFromString(input_str);
+    std::cout << "just parsed" << std::endl;
 
     std::cout << "size: " << params.size() << std::endl;
     std::cout << "just checked" << std::endl;
@@ -70,7 +70,7 @@ BavsFilterConfig::BavsFilterConfig(const newbavs::NewBAVSFilter& proto_config) {
     for (auto iter = proto_config.input_params().begin();
             iter != proto_config.input_params().end();
             iter++) {
-        input_params_[iter->name()] = iter->value();
+        input_params_.push_back(std::make_pair(iter->name(), iter->value()));
         std::cout << "\n\n\n\n" << iter->name() << " " << iter->value() << std::endl;
     }
     std::cout << "inputparams size: " << input_params_.size();
@@ -78,7 +78,7 @@ BavsFilterConfig::BavsFilterConfig(const newbavs::NewBAVSFilter& proto_config) {
     for (auto iter = proto_config.output_params().begin();
             iter != proto_config.output_params().end();
             iter++) {
-        output_params_[iter->name()] = iter->value();
+        output_params_.push_back(std::make_pair(iter->name(), iter->value()));
     }
     std::cout << "outputparams size: " << input_params_.size();
 

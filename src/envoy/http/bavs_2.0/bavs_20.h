@@ -80,8 +80,8 @@ private:
     std::string traffic_shadow_cluster_;
     std::string traffic_shadow_path_;
     std::vector<std::string> headers_to_forward_;
-    std::map<std::string, std::string> input_params_;
-    std::map<std::string, std::string> output_params_;
+    std::vector<std::pair<std::string, std::string>> input_params_;
+    std::vector<std::pair<std::string, std::string>> output_params_;
 };
 
 using BavsFilterConfigSharedPtr = std::shared_ptr<BavsFilterConfig>;
