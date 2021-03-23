@@ -52,6 +52,9 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
         headers_to_forward_.push_back(*iter);
         std::cout << "config " << *iter << std::endl;
     }
+    for (auto param : proto_config.input_params()) {
+        input_params_.push_back(std::make_pair(param.name(), param.value()));
+    }
 }
 
 FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, bool) {
@@ -89,6 +92,9 @@ FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, b
 FilterDataStatus BavsFilter::decodeData(Buffer::Instance&, bool end_stream) {
     if (end_stream) {
         // TODO: if this is the end of the stream, return a 200 to the requestor.
+    }
+    for (const auto& pair : config_->inputParams()) {
+        std::cout << pair.first << ' ' << pair.second << std::endl;
     }
     return FilterDataStatus::Continue;
 }
