@@ -53,9 +53,12 @@ private:
   Http::FilterFactoryCb createFilter(const newbavs::NewBAVSFilter& proto_config, Server::Configuration::FactoryContext& context) {
     Http::BavsFilterConfigSharedPtr config =
       std::make_shared<Http::BavsFilterConfig>(Http::BavsFilterConfig(proto_config));
+    std::cout << "createFilter, size: " << config->inputParams().size() << std::endl;
+    // std::cout << "createFilter, outputsize: " << config->outputParams().size() << std::endl;
 
     return [config, &context](Http::FilterChainFactoryCallbacks& callbacks) -> void {
       auto filter = new Http::BavsFilter20(config, context.clusterManager());
+      // std::cout << "createFilter lambda, size: " << config->inputParams().size() << std::endl;
       callbacks.addStreamFilter(Http::StreamFilterSharedPtr(filter));
     };
   }

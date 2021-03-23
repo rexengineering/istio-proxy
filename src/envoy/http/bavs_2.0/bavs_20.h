@@ -66,10 +66,14 @@ public:
     virtual const std::vector<std::string>& headersToForward() { return headers_to_forward_; }
 
     virtual const std::vector<const UpstreamConfigSharedPtr>& forwards() { return forwards_; }
-    bool processInputParams() { return !input_params_.empty(); }
-    bool processOutputParams() { return !output_params_.empty(); }
-    const std::map<std::string, std::string>& inputParams() const { return input_params_; }
-    const std::map<std::string, std::string>& outputParams() const { return output_params_; }
+    virtual const std::vector<std::pair<std::string, std::string>>& inputParams() {
+        return input_params_;
+    }
+    virtual const std::vector<std::pair<std::string, std::string>>& outputParams() {
+        return output_params_;
+    }
+    virtual bool shouldProcessInput() { return should_process_input_; }
+    virtual bool shouldProcessOutput() { return should_process_input_; }
 
 private:
     std::vector<const UpstreamConfigSharedPtr> forwards_;
@@ -80,6 +84,8 @@ private:
     std::string traffic_shadow_cluster_;
     std::string traffic_shadow_path_;
     std::vector<std::string> headers_to_forward_;
+    bool should_process_input_;
+    bool should_process_output_;
     std::vector<std::pair<std::string, std::string>> input_params_;
     std::vector<std::pair<std::string, std::string>> output_params_;
 };

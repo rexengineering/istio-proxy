@@ -31,17 +31,16 @@ namespace Envoy {
 namespace Http {
 
 std::string process_json_input(std::string& input_str,
-        const std::vector<std::pair<std::string, std::string>>& params) {
+        std::vector<std::pair<std::string, std::string>> input_params) {
 
     std::cout << " going to parse " << std::endl;
-    Json::ObjectSharedPtr json_obj = Json::Factory::loadFromString(input_str);
+    // Json::ObjectSharedPtr json_obj = Json::Factory::loadFromString(input_str);
+    Json::Factory::loadFromString(input_str);
     std::cout << "just parsed" << std::endl;
 
-    std::cout << "size: " << params.size() << std::endl;
-    std::cout << "just checked" << std::endl;
     std::cout << input_str << std::endl;
-    for (auto const& pair : params) {
-        std::cout << " about to iterate on " << std::endl << pair.first << std::endl;
+    for (auto const& param : input_params) {
+        std::cout << "param: " << param.first << " " << param.second << std::endl;
         // if (!json_obj->hasObject(pair.first)) {
         //     std::cout << pair.first << " not found!!!\n" << std::endl;
         //     continue;
@@ -56,7 +55,7 @@ std::string process_json_input(std::string& input_str,
 }
 
 
-BavsFilterConfig::BavsFilterConfig(const newbavs::NewBAVSFilter& proto_config) {
+BavsFilterConfig::BavsFilterConfig(newbavs::NewBAVSFilter& proto_config) {
     forwards_.reserve(proto_config.forwards_size());
     for (auto iter=proto_config.forwards().begin();
          iter != proto_config.forwards().end();
@@ -66,21 +65,6 @@ BavsFilterConfig::BavsFilterConfig(const newbavs::NewBAVSFilter& proto_config) {
         );
         forwards_.push_back(forwardee);
     }
-    std::cout << "inputparams size: " << input_params_.size();
-    for (auto iter = proto_config.input_params().begin();
-            iter != proto_config.input_params().end();
-            iter++) {
-        input_params_.push_back(std::make_pair(iter->name(), iter->value()));
-        std::cout << "\n\n\n\n" << iter->name() << " " << iter->value() << std::endl;
-    }
-    std::cout << "inputparams size: " << input_params_.size();
-    std::cout << "outputparams size: " << input_params_.size();
-    for (auto iter = proto_config.output_params().begin();
-            iter != proto_config.output_params().end();
-            iter++) {
-        output_params_.push_back(std::make_pair(iter->name(), iter->value()));
-    }
-    std::cout << "outputparams size: " << input_params_.size();
 
     wf_id_ = proto_config.wf_id();
     flowd_cluster_ = proto_config.flowd_envoy_cluster();
@@ -93,6 +77,21 @@ BavsFilterConfig::BavsFilterConfig(const newbavs::NewBAVSFilter& proto_config) {
               iter++) {
         headers_to_forward_.push_back(*iter);
     }
+
+    should_process_input_ = (proto_config.input_params_size() > 0);
+    should_process_output_ = (proto_config.output_params_size() > 0);
+
+    for (auto const& param : proto_config.input_params()) {
+        input_params_.push_back(std::make_pair(
+            param.name(), param.value()
+        ));
+    }
+    for (auto const& param : proto_config.output_params()) {
+        output_params_.push_back(std::make_pair(
+            param.name(), param.value()
+        ));
+    }
+    std::cout << "ctor, inputparams size: " << input_params_.size() << std::endl;
 }
 
 
@@ -140,7 +139,6 @@ FilterHeadersStatus BavsFilter20::decodeHeaders(Http::RequestHeaderMap& headers,
         return FilterHeadersStatus::Continue;
     }
 
-    std::cout << "inputparams size: " << config_->inputParams().size() << std::endl;
 
     const Http::HeaderEntry* wf_id_entry = headers.get(Http::LowerCaseString("x-rexflow-wf-id"));
     if (wf_id_entry == NULL || wf_id_entry->value() == NULL ||
@@ -148,15 +146,11 @@ FilterHeadersStatus BavsFilter20::decodeHeaders(Http::RequestHeaderMap& headers,
         return FilterHeadersStatus::Continue;
     }
 
-    std::cout << "inputparams size: " << config_->inputParams().size() << std::endl;
-
     const Http::HeaderEntry* instance_entry = headers.get(Http::LowerCaseString("x-flow-id"));
     if ((instance_entry == NULL) || (instance_entry->value() == NULL)) {
         return FilterHeadersStatus::Continue;
     }
     instance_id_ = instance_entry->value().getStringView();
-
-    std::cout << "inputparamsasdf size: " << config_->inputParams().size() << std::endl;
 
     RequestHeaderMapImpl* temp = request_headers_.get();
     headers.iterate(
@@ -171,8 +165,6 @@ FilterHeadersStatus BavsFilter20::decodeHeaders(Http::RequestHeaderMap& headers,
             return HeaderMap::Iterate::Continue; // for lambda function, not the whole thing.
         }
     );
-
-    std::cout << "inputparams 175 size: " << config_->inputParams().size() << std::endl;
 
     // Now, save headers that we need to propagate to the next service in line.
     for (auto iter = config_->headersToForward().begin(); 
@@ -199,7 +191,10 @@ FilterDataStatus BavsFilter20::decodeData(Buffer::Instance& data, bool end_strea
         return FilterDataStatus::StopIterationAndBuffer;
     }
 
-    if (config_->processInputParams()) {
+    std::cout << "here i am, config is at " << config_ << std::endl;
+    std::cout << "flowd cluster: " << config_->flowdCluster() << std::endl;// << " and protoconfig at " << &(config_->proto_config()) << std::endl;
+    if (config_->shouldProcessInput()) {
+        std::cout << "got through it" << std::endl;
         request_headers_->setContentType("application/json");
         std::string raw_input(request_data_.toString());
         request_data_.drain(request_data_.length());
