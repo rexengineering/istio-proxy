@@ -4,19 +4,13 @@
 #include <stdio.h>
 #include <cstdlib>
 
-#include <curl/curl.h>
-
 #include "envoy/http/filter.h"
 #include "envoy/registry/registry.h"
-#include "envoy/server/filter_config.h"
-#include "common/runtime/runtime_impl.h"
 
-#include "extensions/filters/http/common/pass_through_filter.h"
 #include "common/http/header_map_impl.h"
 #include "common/http/message_impl.h"
 #include "common/common/base64.h"
 #include "bavs.h"
-#include "envoy/upstream/cluster_manager.h"
 #include "common/upstream/cluster_manager_impl.h"
 #include "common/common/random_generator.h"
 
@@ -54,6 +48,9 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
     }
     for (auto param : proto_config.input_params()) {
         input_params_.push_back(std::make_pair(param.name(), param.value()));
+    }
+    for (auto param : proto_config.output_params()) {
+        output_params_.push_back(std::make_pair(param.name(), param.value()));
     }
 }
 
