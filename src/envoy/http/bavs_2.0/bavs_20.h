@@ -63,6 +63,10 @@ public:
     virtual const std::vector<std::string>& headersToForward() { return headers_to_forward_; }
 
     virtual const std::vector<const UpstreamConfigSharedPtr>& forwards() { return forwards_; }
+    bool processInputParams() { return !input_params_.empty(); }
+    bool processOutputParams() { return !output_params_.empty(); }
+    const std::map<std::string, std::string>& inputParams() const { return input_params_; }
+    const std::map<std::string, std::string>& outputParams() const { return output_params_; }
 
 private:
     std::vector<const UpstreamConfigSharedPtr> forwards_;
@@ -73,6 +77,8 @@ private:
     std::string traffic_shadow_cluster_;
     std::string traffic_shadow_path_;
     std::vector<std::string> headers_to_forward_;
+    std::map<std::string, std::string> input_params_;
+    std::map<std::string, std::string> output_params_;
 };
 
 using BavsFilterConfigSharedPtr = std::shared_ptr<BavsFilterConfig>;
@@ -117,7 +123,6 @@ public:
             headers_->setPath(fail_cluster_path_);
             cluster_ = fail_cluster_;
         }
-
     }
 
     void onData(Buffer::Instance& data, bool) override {

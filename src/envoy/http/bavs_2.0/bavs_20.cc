@@ -40,6 +40,20 @@ BavsFilterConfig::BavsFilterConfig(const newbavs::NewBAVSFilter& proto_config) {
         );
         forwards_.push_back(forwardee);
     }
+
+    for (auto iter = proto_config.input_params().begin();
+            iter != proto_config.input_params().end();
+            iter++) {
+        input_params_[iter->name()] = iter->value();
+        std::cout << "\n\n\n\n" << iter->name() << " " << iter->value() << std::endl;
+    }
+
+    for (auto iter = proto_config.output_params().begin();
+            iter != proto_config.output_params().end();
+            iter++) {
+        output_params_[iter->name()] = iter->value();
+    }
+
     wf_id_ = proto_config.wf_id();
     flowd_cluster_ = proto_config.flowd_envoy_cluster();
     flowd_path_ = proto_config.flowd_path();
@@ -135,13 +149,9 @@ FilterHeadersStatus BavsFilter20::decodeHeaders(Http::RequestHeaderMap& headers,
         }
     }
 
-    // if (config_->headerTransform()) {
-    //     transformHeaders();
-    // }
-
     successful_response_ = false;
     is_workflow_ = true;
-    sendHeaders(end_stream);
+    if (end_stream) sendHeaders(true);
     return FilterHeadersStatus::StopIteration;
 }
 
@@ -152,6 +162,19 @@ FilterDataStatus BavsFilter20::decodeData(Buffer::Instance& data, bool end_strea
         request_data_.add(data);
         return FilterDataStatus::StopIterationAndBuffer;
     }
+
+    if (config_->processInputParams()) {
+        request_headers_->setContentType("application/json");
+        std::string raw_input(request_data_.toString());
+        request_data_.drain(request_data_.size());
+
+        std::string new_input = request_data_.toString(); // process_json_input(raw_input, config_->inputParams());
+
+        request_data_.add(new_input);
+        request_headers_->setContentLength(std::to_string(request_data_.size()));
+    }
+
+    sendHeaders(false);
 
     // first notify caller that we gotchu buddy
     std::string temp = spanid_;
