@@ -197,8 +197,6 @@ FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream)
         return FilterDataStatus::StopIterationAndBuffer;
     }
 
-    std::cout << "here i am, config is at " << config_ << std::endl;
-    std::cout << "flowd cluster: " << config_->flowdCluster() << std::endl;// << " and protoconfig at " << &(config_->proto_config()) << std::endl;
     if (!config_->inputParams().empty()) {
         std::cout << "got through it" << std::endl;
         request_headers_->setContentType("application/json");

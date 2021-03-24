@@ -302,6 +302,25 @@ public:
         }
     }
 
+    void sendAllHeaders(bool end_stream) {
+        for (const auto& key : req_cb_keys) {
+            Envoy::Upstream::AsyncStreamCallbacksAndHeaders* cb = 
+                cluster_manager_.getCallbacksAndHeaders(*iter);
+            if (cb != NULL) {
+                Http::AsyncClient::Stream* stream(cb->getStream());
+                if (stream != NULL) {
+                    stream->sendHeaders(cb->requestHeaderMap(), end_stream);
+                } else {
+                    std::cout << "NULL HTTP stream pointer!" << std::endl;
+                    // FIXME: Do something useful here since the request failed. Maybe notify flowd?
+                }
+            } else {
+                std::cout << "NULL callback pointer!" << std::endl;
+                // FIXME: Do something useful here since the request failed. Maybe notify flowd?
+            }
+        }
+    }
+
     void sendShadowHeaders(Http::RequestHeaderMapImpl& original_headers) {
         // copy the headers
         std::unique_ptr<RequestHeaderMapImpl> headers = Http::RequestHeaderMapImpl::create();
