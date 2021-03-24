@@ -27,11 +27,14 @@ namespace Http {
 std::string process_json_input(std::string& input_str,
         std::vector<bavs::BAVSParameter> input_params) {
 
+    Json::ObjectSharedPtr json_obj;
     try {
-        Json::ObjectSharedPtr json_obj = Json::Factory::loadFromString(input_str);
+        json_obj = Json::Factory::loadFromString(input_str);
     } catch (const EnvoyException& exn) {
         std::cout << "Exception parsing json input: " << input_str << "\n\n" << exn.what() << std::endl;
     }
+
+    std::vector<std::pair<std::string, std::string>>  json_elements;
 
     for (auto const& param : input_params) {
         if (!json_obj->hasObject(param.name())) {
@@ -39,19 +42,35 @@ std::string process_json_input(std::string& input_str,
             // TODO: Error handling
             continue;
         }
-        std::cout << "found " << param.name() << std::endl;
 
-        std::string 
-
-        try {
-            Json::ObjectSharedPtr cur_obj = json_obj->getObject(param.name());
-            std::cout << "asJsonString(): " << std::endl << cur_obj->asJsonString() << std::endl;
-        } catch(const EnvoyException& exn) {
-            std::cout << "EXCEPTION: " << exn.what() << std::endl;
+        std::string element;
+        if (param.type() == "STRING") {
+            element = "\"" + json_obj->getString(param.name()) + "\"";
+        } else if (param.type() == "BOOLEAN") {
+            element = json_obj->getBoolean(param.name()) ? "true" : "false";
+        } else if (param.type() == "DOUBLE") {
+            element = std::to_string(json_obj->getDouble(param.name()));
+        } else if (param.type() == "INTEGER") {
+            element = std::to_string(json_obj->getDouble(param.name()));
+        } else if (param.type() == "JSON_OBJECT") {
+            element = json_obj->getObject(param.name())->asJsonString();
+        } else {
+            std::cout << "invalid envoy config." << std::endl;
         }
+        json_elements.push_back(std::make_pair(param.value(), element));
     }
 
-    return "{\"val\":12345}";
+    std::stringstream ss;
+    size_t num_params = json_elements.size();
+    ss << "{";
+    for (size_t i = 0; i < num_params; i++) {
+        ss << "\"" << json_elements[i].first << "\": " << json_elements[i].second;
+        if (i < num_params - 1) {
+            ss  << ", ";
+        }
+    }
+    ss << "}";
+    return ss.str();
 }
 
 
