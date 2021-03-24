@@ -25,24 +25,30 @@ namespace Envoy {
 namespace Http {
 
 std::string process_json_input(std::string& input_str,
-        std::vector<std::pair<std::string, std::string>> input_params) {
+        std::vector<bavs::BAVSParameter> input_params) {
 
-    std::cout << " going to parse " << std::endl;
-    // Json::ObjectSharedPtr json_obj = Json::Factory::loadFromString(input_str);
-    Json::Factory::loadFromString(input_str);
-    std::cout << "just parsed" << std::endl;
+    try {
+        Json::ObjectSharedPtr json_obj = Json::Factory::loadFromString(input_str);
+    } catch (const EnvoyException& exn) {
+        std::cout << "Exception parsing json input: " << input_str << "\n\n" << exn.what() << std::endl;
+    }
 
-    std::cout << input_str << std::endl;
     for (auto const& param : input_params) {
-        std::cout << "param: " << param.first << " " << param.second << std::endl;
-        // if (!json_obj->hasObject(pair.first)) {
-        //     std::cout << pair.first << " not found!!!\n" << std::endl;
-        //     continue;
-        // }
-        // std::cout << "found " << pair.first << std::endl;
-        // Json::ObjectSharedPtr cur_obj = json_obj->getObject(pair.first);
+        if (!json_obj->hasObject(param.name())) {
+            std::cout << param.name() << " not found!!!\n" << std::endl;
+            // TODO: Error handling
+            continue;
+        }
+        std::cout << "found " << param.name() << std::endl;
 
-        // std::cout << "asJsonString(): " << cur_obj->asJsonString() << std::endl;
+        std::string 
+
+        try {
+            Json::ObjectSharedPtr cur_obj = json_obj->getObject(param.name());
+            std::cout << "asJsonString(): " << std::endl << cur_obj->asJsonString() << std::endl;
+        } catch(const EnvoyException& exn) {
+            std::cout << "EXCEPTION: " << exn.what() << std::endl;
+        }
     }
 
     return "{\"val\":12345}";
@@ -69,10 +75,10 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
         headers_to_forward_.push_back(header);
     }
     for (auto param : proto_config.input_params()) {
-        input_params_.push_back(std::make_pair(param.name(), param.value()));
+        input_params_.push_back(param);
     }
     for (auto param : proto_config.output_params()) {
-        output_params_.push_back(std::make_pair(param.name(), param.value()));
+        output_params_.push_back(param);
     }
 }
 
