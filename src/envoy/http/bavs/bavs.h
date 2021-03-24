@@ -21,6 +21,9 @@
 namespace Envoy {
 namespace Http {
 
+std::string build_json_from_params(std::string& input_str,
+        std::vector<bavs::BAVSParameter> input_params);
+
 class UpstreamConfig {
 public:
     UpstreamConfig() {}
@@ -292,7 +295,9 @@ public:
             if (config_->trafficShadowCluster() != "") {
                 sendShadowHeaders(callbacks->requestHeaderMap());
             }
-            callbacks->getStream()->sendHeaders(callbacks->requestHeaderMap(), end_stream);
+            if (end_stream) {
+                callbacks->getStream()->sendHeaders(callbacks->requestHeaderMap(), end_stream);
+            }
             req_cb_keys.push_back(req_cb_key);
         }
     }
