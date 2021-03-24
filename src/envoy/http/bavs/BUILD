@@ -15,7 +15,7 @@ envoy_proto_library(
 
 envoy_cc_library(
     name = "bavs_lib",
-    srcs = ["bavs.cc"],
+    srcs = ["bavs.cc", "inbound_callbacks.cc"],
     hdrs = ["bavs.h"],
     repository = "@envoy",
     deps = [

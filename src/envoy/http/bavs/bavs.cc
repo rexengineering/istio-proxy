@@ -192,24 +192,24 @@ void BavsFilter::sendHeaders(bool end_stream) {
 FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream) {
     if (!is_workflow_) return FilterDataStatus::Continue;
 
+    request_data_.add(data);
     if (!end_stream) {
-        request_data_.add(data);
         return FilterDataStatus::StopIterationAndBuffer;
     }
 
     if (!config_->inputParams().empty()) {
-        std::cout << "got through it" << std::endl;
         request_headers_->setContentType("application/json");
         std::string raw_input(request_data_.toString());
 
         std::string new_input = "{}";
         try {
-            std::string new_input = build_json_from_params(raw_input, config_->inputParams());
+            new_input = build_json_from_params(raw_input, config_->inputParams());
         } catch(const EnvoyException& exn) {
             // TODO: handle errors
             std::cout << exn.what() << "Unable to process input:\n" << raw_input << std::endl;
         }
         request_data_.drain(request_data_.length());
+        std::cout << "New input:: " << new_input << std::endl;
 
         request_data_.add(new_input);
         request_headers_->setContentLength(std::to_string(request_data_.length()));
