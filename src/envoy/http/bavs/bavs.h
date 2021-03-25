@@ -21,8 +21,11 @@
 namespace Envoy {
 namespace Http {
 
-std::string build_json_from_params(std::string& input_str,
-        std::vector<bavs::BAVSParameter> input_params);
+std::string create_json_string(const std::map<std::string, std::string>& json_elements);
+std::string get_array_as_string(const Json::Object* json);
+std::string get_object_as_string(const Json::Object* json);
+std::string build_json_from_params(const Json::ObjectSharedPtr, const std::vector<bavs::BAVSParameter>);
+std::string merge_jsons(const Json::ObjectSharedPtr original, const Json::ObjectSharedPtr updater);
 
 class UpstreamConfig {
 public:
@@ -123,7 +126,7 @@ public:
         }
     }
 
-    void onData(Buffer::Instance& data, bool) override {}
+    void onData(Buffer::Instance&, bool) override {}
     void onTrailers(Http::ResponseTrailerMapPtr&&) override {}
     void onReset() override {}
     void onComplete() override {
@@ -199,16 +202,16 @@ private:
     UpstreamConfigSharedPtr config_;
 };
 
-
 class BavsInboundCallbacks : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
 public:
     BavsInboundCallbacks(std::string id, std::unique_ptr<Http::RequestHeaderMapImpl> headers,
             Upstream::ClusterManager& cm, BavsFilterConfigSharedPtr config,
             std::map<std::string, std::string> saved_headers, std::string instance_id,
-            std::string spanid)
+            std::string spanid, std::string context_input, bool data_is_json)
         : id_(id), headers_(std::move(headers)), cluster_manager_(cm), config_(config),
           saved_headers_(saved_headers), instance_id_(instance_id),
-          spanid_(spanid) {
+          spanid_(spanid), context_input_(context_input), inbound_data_is_json_(data_is_json),
+          did_update_request_data_(false) {
         cluster_manager_.storeCallbacksAndHeaders(id, this);
     }
 
@@ -239,18 +242,18 @@ private:
     std::string spanid_;
     std::vector<std::string> req_cb_keys;
     Buffer::OwnedImpl request_data_;
+    std::string context_input_;
+    bool inbound_data_is_json_;
+    bool did_update_request_data_;
 
 };
 
 class BavsFilter : public PassThroughFilter, public Logger::Loggable<Logger::Id::filter> {
 private:
-    // void sendShadowHeaders(Http::RequestHeaderMapImpl& original_headers, bool);
-    // void sendShadowData(Buffer::Instance&, bool);
     const BavsFilterConfigSharedPtr config_;
     Upstream::ClusterManager& cluster_manager_;
     bool is_workflow_;
     bool successful_response_;
-    // std::vector<std::string> req_cb_keys_;
     std::string instance_id_;
     std::unique_ptr<RequestMessageImpl> message_;
     std::map<std::string, std::string> saved_headers_;
@@ -261,7 +264,6 @@ private:
     std::string callback_key_;
     std::string spanid_;
 
-    // Envoy::Upstream::AsyncStreamCallbacksAndHeaders* shadow_callbacks_;
     void sendHeaders(bool end_stream);
 
 public:
@@ -275,29 +277,6 @@ public:
     FilterHeadersStatus decodeHeaders(Http::RequestHeaderMap&, bool);
     FilterHeadersStatus encodeHeaders(Http::ResponseHeaderMap&, bool);
 };
-
-
-// class BavsFilter : public PassThroughFilter, public Logger::Loggable<Logger::Id::filter> {
-// private:
-//     void sendShadowHeaders(Http::RequestHeaderMapImpl& original_headers);
-//     const BavsFilterConfigSharedPtr config_;
-//     Upstream::ClusterManager& cluster_manager_;
-//     bool is_workflow_;
-//     bool successful_response_;
-//     std::vector<std::string> req_cb_keys;
-//     std::string flow_id_;
-//     std::string wf_template_id_;
-//     std::map<std::string, std::string> saved_headers_;
-
-// public:
-//     BavsFilter(BavsFilterConfigSharedPtr config, Upstream::ClusterManager& cluster_manager)
-//     : config_(config), cluster_manager_(cluster_manager), is_workflow_(false), successful_response_(true) {};
-
-//     FilterDataStatus decodeData(Buffer::Instance&, bool);
-//     FilterDataStatus encodeData(Buffer::Instance&, bool);
-//     FilterHeadersStatus decodeHeaders(Http::RequestHeaderMap&, bool);
-//     FilterHeadersStatus encodeHeaders(Http::ResponseHeaderMap&, bool);
-// };
 
 } // namespace Http
 } // namespace Envoy

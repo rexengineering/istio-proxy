@@ -24,56 +24,6 @@
 namespace Envoy {
 namespace Http {
 
-std::string build_json_from_params(std::string& input_str,
-        std::vector<bavs::BAVSParameter> input_params) {
-
-    Json::ObjectSharedPtr json_obj;
-    try {
-        json_obj = Json::Factory::loadFromString(input_str);
-    } catch (const EnvoyException& exn) {
-        std::cout << "Exception parsing json input: " << input_str << "\n\n" << exn.what() << std::endl;
-    }
-
-    std::vector<std::pair<std::string, std::string>>  json_elements;
-
-    for (auto const& param : input_params) {
-        if (!json_obj->hasObject(param.name())) {
-            std::cout << param.name() << " not found!!!\n" << std::endl;
-            // TODO: Error handling
-            continue;
-        }
-
-        std::string element;
-        if (param.type() == "STRING") {
-            element = "\"" + json_obj->getString(param.name()) + "\"";
-        } else if (param.type() == "BOOLEAN") {
-            element = json_obj->getBoolean(param.name()) ? "true" : "false";
-        } else if (param.type() == "DOUBLE") {
-            element = std::to_string(json_obj->getDouble(param.name()));
-        } else if (param.type() == "INTEGER") {
-            element = std::to_string(json_obj->getDouble(param.name()));
-        } else if (param.type() == "JSON_OBJECT") {
-            element = json_obj->getObject(param.name())->asJsonString();
-        } else {
-            std::cout << "invalid envoy config." << std::endl;
-        }
-        json_elements.push_back(std::make_pair(param.value(), element));
-    }
-
-    std::stringstream ss;
-    size_t num_params = json_elements.size();
-    ss << "{";
-    for (size_t i = 0; i < num_params; i++) {
-        ss << "\"" << json_elements[i].first << "\": " << json_elements[i].second;
-        if (i < num_params - 1) {
-            ss  << ", ";
-        }
-    }
-    ss << "}";
-    return ss.str();
-}
-
-
 BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
     forwards_.reserve(proto_config.forwards_size());
     for (auto iter=proto_config.forwards().begin();
@@ -171,9 +121,12 @@ void BavsFilter::sendHeaders(bool end_stream) {
     Random::RandomGeneratorImpl rng;
     callback_key_ = rng.uuid();
 
+    bool is_json = request_headers_->getContentTypeValue() == "application/json";
+
     callbacks_ = new BavsInboundCallbacks(
         callback_key_, std::move(request_headers_), cluster_manager_, config_,
-        saved_headers_, instance_id_, spanid_);
+        saved_headers_, instance_id_, spanid_, request_data_.toString(),
+        is_json);
 
     Http::AsyncClient::Stream* stream;
     callbacks_->setStream(client->start(*callbacks_, AsyncClient::StreamOptions()));
@@ -203,7 +156,11 @@ FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream)
 
         std::string new_input = "{}";
         try {
-            new_input = build_json_from_params(raw_input, config_->inputParams());
+            Json::ObjectSharedPtr json = Json::Factory::loadFromString(raw_input);
+            if (!json->isObject()) {
+                throw new EnvoyException("Incoming data not an object.");
+            }
+            new_input = build_json_from_params(json, config_->inputParams());
         } catch(const EnvoyException& exn) {
             // TODO: handle errors
             std::cout << exn.what() << "Unable to process input:\n" << raw_input << std::endl;
