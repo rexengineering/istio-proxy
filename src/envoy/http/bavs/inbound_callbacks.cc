@@ -103,9 +103,10 @@ void BavsInboundCallbacks::sendAllHeaders(bool end_stream) {
             if (stream != NULL) {
                 auto& hdr_map = cb->requestHeaderMap();
                 if (did_update_request_data_) {
+                    std::cout << "updating headers " << std::endl;
                     hdr_map.setContentType("application/json");
                     hdr_map.setContentLength(request_data_.length());
-                }
+                } else std::cout << "didn't update headers " << std::endl;
                 stream->sendHeaders(hdr_map, end_stream);
             } else {
                 std::cout << "NULL HTTP stream pointer!" << std::endl;
@@ -174,9 +175,10 @@ void BavsInboundCallbacks::onData(Buffer::Instance& data, bool end_stream) {
         std::cout << "New input:: " << new_input << std::endl;
 
         request_data_.add(new_input);
+        did_update_request_data_ = true;
     }
 
-    if (true && inbound_data_is_json_) {  // TODO: Make this part of the config_
+    if (config_->isClosureTransport() && inbound_data_is_json_) {  // TODO: Make this part of the config_
         Json::ObjectSharedPtr updater = Json::Factory::loadFromString(request_data_.toString());
         Json::ObjectSharedPtr updatee = Json::Factory::loadFromString(context_input_);
         if (updater->isObject() && updatee->isObject()) {
@@ -189,8 +191,9 @@ void BavsInboundCallbacks::onData(Buffer::Instance& data, bool end_stream) {
             // TODO: Error handling.
         }
     }
-    
+
     sendAllHeaders(false);
+    std::cout << "Going to send " << request_data_.toString() << std::endl;
 
     for (std::string& key : req_cb_keys) {
         Envoy::Upstream::AsyncStreamCallbacksAndHeaders* cb =  cluster_manager_.getCallbacksAndHeaders(key);

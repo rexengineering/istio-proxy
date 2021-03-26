@@ -69,6 +69,8 @@ public:
     virtual const std::vector<const UpstreamConfigSharedPtr>& forwards() { return forwards_; }
     std::vector<bavs::BAVSParameter>& inputParams() { return input_params_; }
     std::vector<bavs::BAVSParameter>& outputParams() { return output_params_; }
+    bool isClosureTransport() { return is_closure_transport_; }
+    int upstreamPort() { return upstream_port_; }
 
 private:
     std::vector<const UpstreamConfigSharedPtr> forwards_;
@@ -81,6 +83,8 @@ private:
     std::vector<std::string> headers_to_forward_;
     std::vector<bavs::BAVSParameter> input_params_;
     std::vector<bavs::BAVSParameter> output_params_;
+    bool is_closure_transport_;
+    int upstream_port_;
 };
 
 using BavsFilterConfigSharedPtr = std::shared_ptr<BavsFilterConfig>;
@@ -269,8 +273,9 @@ private:
 public:
     BavsFilter(BavsFilterConfigSharedPtr config, Upstream::ClusterManager& cluster_manager)
     : config_(config), cluster_manager_(cluster_manager), is_workflow_(false), successful_response_(true),
-      service_cluster_("inbound|5000||"),
-      request_headers_(Http::RequestHeaderMapImpl::create()) {};
+      request_headers_(Http::RequestHeaderMapImpl::create()) {
+          service_cluster_ = "inbound|" + std::to_string(config_->upstreamPort()) + "||";
+      };
 
     FilterDataStatus decodeData(Buffer::Instance&, bool);
     FilterDataStatus encodeData(Buffer::Instance&, bool);

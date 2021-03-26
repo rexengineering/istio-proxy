@@ -62,27 +62,27 @@ std::string build_json_from_params(const Json::ObjectSharedPtr json_obj,
     std::map<std::string, std::string> json_elements;
 
     for (auto const& param : input_params) {
-        if (!json_obj->hasObject(param.name())) {
-            std::cout << param.name() << " not found!!!\n" << std::endl;
+        if (!json_obj->hasObject(param.value())) {
+            std::cout << param.value() << " not found!!!\n" << std::endl;
             // TODO: Error handling
             continue;
         }
 
         std::string element;
         if (param.type() == "STRING") {
-            element = "\"" + json_obj->getString(param.name()) + "\"";
+            element = "\"" + json_obj->getString(param.value()) + "\"";
         } else if (param.type() == "BOOLEAN") {
-            element = json_obj->getBoolean(param.name()) ? "true" : "false";
+            element = json_obj->getBoolean(param.value()) ? "true" : "false";
         } else if (param.type() == "DOUBLE") {
-            element = std::to_string(json_obj->getDouble(param.name()));
+            element = std::to_string(json_obj->getDouble(param.value()));
         } else if (param.type() == "INTEGER") {
-            element = std::to_string(json_obj->getDouble(param.name()));
+            element = std::to_string(json_obj->getDouble(param.value()));
         } else if (param.type() == "JSON_OBJECT") {
-            element = json_obj->getObject(param.name())->asJsonString();
+            element = json_obj->getObject(param.value())->asJsonString();
         } else {
             std::cout << "invalid envoy config." << std::endl;
         }
-        json_elements[param.value()] = element;
+        json_elements[param.name()] = element;
     }
     // TODO: Error handling
 

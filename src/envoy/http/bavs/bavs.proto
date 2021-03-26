@@ -30,4 +30,6 @@ message BAVSFilter {
     repeated string headers_to_forward = 8;
     repeated BAVSParameter input_params = 9;
     repeated BAVSParameter output_params = 10;
+    bool closure_transport = 11;
+    int32 upstream_port = 12;
 }

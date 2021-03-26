@@ -40,6 +40,8 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
     task_id_ = proto_config.task_id();
     traffic_shadow_cluster_ = proto_config.traffic_shadow_cluster();
     traffic_shadow_path_ = proto_config.traffic_shadow_path();
+    is_closure_transport_ = proto_config.closure_transport();
+    upstream_port_ = proto_config.upstream_port();
     for (const std::string& header : proto_config.headers_to_forward()) {
         headers_to_forward_.push_back(header);
     }
@@ -56,7 +58,6 @@ FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, b
     if (task_entry == NULL || (task_entry->value() != NULL && task_entry->value().getStringView() != config_->taskId())) {
         return FilterHeadersStatus::Continue;
     }
-
 
     const Http::HeaderEntry* wf_id_entry = headers.get(Http::LowerCaseString("x-rexflow-wf-id"));
     if (wf_id_entry == NULL || wf_id_entry->value() == NULL ||
