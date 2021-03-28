@@ -104,6 +104,9 @@ FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, b
 
 void BavsFilter::sendHeaders(bool end_stream) {
     if (!is_workflow_) return;
+    Random::RandomGeneratorImpl rng;
+    callback_key_ = rng.uuid();
+
     auto& active_span = decoder_callbacks_->activeSpan();
     active_span.injectContext(*(request_headers_.get()));
 
@@ -117,10 +120,9 @@ void BavsFilter::sendHeaders(bool end_stream) {
         client = &(cluster_manager_.httpAsyncClientForCluster(service_cluster_));
     } catch(const EnvoyException&) {
         std::cout << "The cluster wasn't found" << std::endl;
+        // TODO: when not found, process errors.
+        return;
     }
-
-    Random::RandomGeneratorImpl rng;
-    callback_key_ = rng.uuid();
 
     bool is_json = request_headers_->getContentTypeValue() == "application/json";
 
@@ -175,6 +177,21 @@ FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream)
 
     sendHeaders(false);
 
+
+    BavsInboundCallbacks *cb = dynamic_cast<BavsInboundCallbacks*>(
+        cluster_manager_.getCallbacksAndHeaders(callback_key_));
+    if (!cb) {
+        std::cout << "appears it never got called." << std::endl;
+        // TODO: figure out how to 
+        return FilterDataStatus::Continue;
+    }
+
+    Http::AsyncClient::Stream* stream = cb->getStream();
+    if (!stream) {
+        std::cout << "Lost connection to service." << std::endl;
+        return FilterDataStatus::Continue;
+    }
+
     // first notify caller that we gotchu buddy
     std::string temp = spanid_;
     decoder_callbacks_->sendLocalReply(
@@ -186,11 +203,6 @@ FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream)
         absl::nullopt,
         ""
     );
-
-    Http::AsyncClient::Stream* stream = callbacks_->getStream();
-    if (!stream) {
-        std::cout << "Lost connection to service." << std::endl;
-    }
 
     stream->sendData(request_data_, true);
     return FilterDataStatus::StopIterationAndBuffer;
