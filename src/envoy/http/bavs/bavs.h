@@ -2,6 +2,7 @@
 #include <iostream>
 #include <stdio.h>
 #include <map>
+#include <queue>
 
 #include "envoy/http/filter.h"
 #include "common/buffer/buffer_impl.h"
@@ -117,6 +118,7 @@ public:
 
 private:
 
+    void createAndSendErrorMessage(std::string msg);
     void doRetry(bool end_stream);
     std::string id_;
     Upstream::ClusterManager* cluster_manager_;
@@ -160,9 +162,12 @@ public:
     Http::RequestHeaderMapImpl& requestHeaderMap() override { return *(headers_.get()); }
     void setStream(Http::AsyncClient::Stream* stream) override { request_stream_ = stream;}
     Http::AsyncClient::Stream* getStream() override { return request_stream_; }
+    void addData(Buffer::Instance& data);
 
 private:
 
+    void createAndSendErrorMessage(std::string msg);
+    void doRetry(bool end_stream);
     std::string id_;
     std::unique_ptr<Http::RequestHeaderMapImpl> headers_;
     Upstream::ClusterManager& cluster_manager_;
@@ -179,8 +184,32 @@ private:
 
 };
 
-class BavsErrorCallbacks : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
+using ClusterHostPair = std::pair<std::string, std::string>;
 
+class BavsErrorCallbacks : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
+public:
+    BavsErrorCallbacks(Buffer::OwnedImpl message_data,
+                       std::unique_ptr<Http::RequestHeaderMapIMpl> message_headers,
+                       Upstream::ClusterManager& cm, std::queue<ClusterHostPair> clusters);
+    BavsErrorCallbacks(Buffer::OwnedImpl request_data,
+                       std::unique_ptr<Http::RequestHeaderMapImpl> request_headers,
+                       Buffer::OwnedImpl response_data,
+                       std::unique_ptr<Http::ResponseHeaderMapImpl> response_headers,
+                       Upstream::ClusterManager& cm,
+                       std::queue<ClusterHostPair> cluster_queue);
+    void onHeaders(Http::ResponseHeaderMapPtr&&, bool) override;
+    void onTrailers(Http::ResponseTrailerMapPtr&&) override {}
+    void onComplete() override;
+    void onReset() override;
+    void onData(Buffer::Instance&, bool) override;
+    Http::RequestHeaderMap& requestHeaderMap() override;
+    void setStream(Http::AsyncClient::Stream* stream) override;
+    Http::AsyncClient::Stream* getStream() override;
+private:
+    Buffer::OwnedImpl message_body_;
+    Http::RequestHeaderMapImpl message_headers_;
+    Upstream::ClusterManager& cluster_manager_;
+    std::queue<ClusterHostPair> cluster_queue_;
 };
 
 class BavsFilter : public PassThroughFilter, public Logger::Loggable<Logger::Id::filter> {
@@ -200,6 +229,7 @@ private:
     std::string spanid_;
 
     void sendHeaders(bool end_stream);
+    void createAndSendErrorMessage(std::string msg);
 
 public:
     BavsFilter(BavsFilterConfigSharedPtr config, Upstream::ClusterManager& cluster_manager)

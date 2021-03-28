@@ -119,8 +119,8 @@ void BavsFilter::sendHeaders(bool end_stream) {
     try {
         client = &(cluster_manager_.httpAsyncClientForCluster(service_cluster_));
     } catch(const EnvoyException&) {
-        std::cout << "The cluster wasn't found" << std::endl;
-        // TODO: when not found, process errors.
+        // The cluster wasn't found, so we need to begin error processing.
+        createAndSendErrorMessage();
         return;
     }
 
@@ -137,7 +137,8 @@ void BavsFilter::sendHeaders(bool end_stream) {
     // perform check to make sure it worked
     stream = callbacks_->getStream();
     if (!stream) {
-        std::cout << "Failed to connect to service." << std::endl;
+        // This failure means that the inbound service is fuly down.
+        createAndSendErrorMessage();
         return;
     }
     Http::RequestHeaderMapImpl& hdrs = callbacks_->requestHeaderMap();
@@ -153,8 +154,14 @@ FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream)
         return FilterDataStatus::StopIterationAndBuffer;
     }
 
-    if (!config_->inputParams().empty()) {
-        request_headers_->setContentType("application/json");
+    if (config_->isClosureTransport()) {
+        if (request_headers_->getContentTypeValue() != "application/json") {
+            createAndSendErrorMessage(
+                "Input to closure-enabled WF Service was not in the recognized json format."
+            );
+            return FilterDataStatus::Continue;
+        }
+
         std::string raw_input(request_data_.toString());
 
         std::string new_input = "{}";
@@ -166,10 +173,12 @@ FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream)
             new_input = build_json_from_params(json, config_->inputParams());
         } catch(const EnvoyException& exn) {
             // TODO: handle errors
-            std::cout << exn.what() << "Unable to process input:\n" << raw_input << std::endl;
+            createAndSendErrorMessage(
+                "Failed while unmarshalling closure."
+            );
+            return FilterDataStatus::Continue;
         }
         request_data_.drain(request_data_.length());
-        std::cout << "New input:: " << new_input << std::endl;
 
         request_data_.add(new_input);
         request_headers_->setContentLength(std::to_string(request_data_.length()));
@@ -180,15 +189,10 @@ FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream)
 
     BavsInboundCallbacks *cb = dynamic_cast<BavsInboundCallbacks*>(
         cluster_manager_.getCallbacksAndHeaders(callback_key_));
-    if (!cb) {
-        std::cout << "appears it never got called." << std::endl;
-        // TODO: figure out how to 
-        return FilterDataStatus::Continue;
-    }
+    Http::AsyncClient::Stream* stream = cb ? cb->getStream() : NULL;
 
-    Http::AsyncClient::Stream* stream = cb->getStream();
-    if (!stream) {
-        std::cout << "Lost connection to service." << std::endl;
+    if (!cb || !stream) {
+        createAndSendErrorMessage("Lost connection to upstream service.");
         return FilterDataStatus::Continue;
     }
 
