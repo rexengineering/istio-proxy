@@ -208,6 +208,7 @@ FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream)
         ""
     );
 
+    cb->addData(request_data_);
     stream->sendData(request_data_, true);
     return FilterDataStatus::StopIterationAndBuffer;
 }
