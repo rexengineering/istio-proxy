@@ -244,3 +244,78 @@ void BavsInboundCallbacks::sendNextTaskMessage(Buffer::Instance& data, bool end_
 
 } // namespace Http
 } // namespace Envoy
+
+
+
+class BavsInboundCallbacks : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
+public:
+    BavsInboundCallbacks(std::string id, std::unique_ptr<Http::RequestHeaderMapImpl> headers,
+            Upstream::ClusterManager& cm, BavsFilterConfigSharedPtr config,
+            std::map<std::string, std::string> saved_headers, std::string instance_id,
+            std::string spanid, std::string context_input, std::string service_input, bool data_is_json,
+            int retries_left)
+        : cluster_manager_cb_id_(id), inbound_request_headers_(std::move(headers)), cluster_manager_(cm),
+          config_(config), saved_headers_(saved_headers), instance_id_(instance_id),
+          spanid_(spanid), context_input_(context_input), service_input_is_json_(data_is_json),
+          retries_left_(retries_left) {
+        cluster_manager_.storeCallbacksAndHeaders(cluster_manager_cb_id_, this);
+    }
+
+    void onHeaders(Http::ResponseHeaderMapPtr&& headers, bool end_stream) override; 
+    void sendHeaders(std::string cb_key, bool end_stream);
+    void sendShadowHeaders(Http::RequestHeaderMapImpl& original_headers);
+    void onData(Buffer::Instance& data, bool end_stream) override;
+
+    void onTrailers(Http::ResponseTrailerMapPtr&&) override {}
+    void onReset() override {}
+    void onComplete() override {
+        // remove ourself from the clusterManager
+        cluster_manager_.eraseCallbacksAndHeaders(cluster_manager_cb_id_);
+    }
+    Http::RequestHeaderMapImpl& requestHeaderMap() override { return *(inbound_request_headers_.get()); }
+    void setStream(Http::AsyncClient::Stream* stream) override { request_stream_ = stream;}
+    Http::AsyncClient::Stream* getStream() override { return request_stream_; }
+    void addData(Buffer::Instance& data) { service_input_.add(data); }
+
+private:
+
+    std::unique_ptr<RequestHeaderMapImpl> createOutboundHeaders(UpstreamConfigSharedPtr upstream_ptr);
+
+    // Method to retry initial inbound service call.
+    void doInboundRetry();
+
+    // Happy-Path methods for successful call to inbound service.
+    void prepareNextTaskMessage(Http::ResponseHeaderMapPtr&& headers, bool end_stream);
+    void sendNextTaskMessage(Buffer::Instance& data, bool end_stream);
+
+    // Sad-Path methods for when inbound task fails but we can still send to Error Gateway.
+    void prepareErrorGatewayMessage(Http::ResponseHeaderMapPtr&& headers, bool end_stream);
+    void sendErrorGatewayMessage(Buffer::Instance& data, bool end_stream);
+
+    // Angry-Path methods for total failure.
+    void prepareFlowdErrorMessage(Http::ResponseHeaderMapPtr&& headers, bool end_stream);
+    void sendFlowdErrorMessage(Buffer::Instance& data, bool end_stream);
+
+    // bookkeeping
+    std::string cluster_manager_cb_id_;
+    Upstream::ClusterManager& cluster_manager_;
+    BavsFilterConfigSharedPtr config_;
+
+    // Stuff used by caller (bavs.cc) to send the initial inbound request
+    std::unique_ptr<Http::RequestHeaderMapImpl> inbound_request_headers_;
+    Http::AsyncClient::Stream* request_stream_;
+
+    // Bookkeeping
+    std::map<std::string, std::string> saved_headers_;
+    std::string instance_id_;
+    std::string spanid_;
+    std::vector<std::string> req_cb_keys;
+    Buffer::OwnedImpl next_task_outbound_data_;
+    std::string context_input_;
+    Buffer::OwnedImpl service_input_;
+    bool service_input_is_json_;
+    int retries_left_;
+
+    BavsInboundCallbacksState state_;
+};
+

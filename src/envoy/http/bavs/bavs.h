@@ -95,156 +95,211 @@ private:
 
 using BavsFilterConfigSharedPtr = std::shared_ptr<BavsFilterConfig>;
 
-class BavsOutboundCallbacks : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
+/**
+ * Usage: To send an inbound Workflow request and do appropriate error handling + forward
+ * response to proper next service in workflow, simply declare a BavsInboundRequest object
+ * on the stack and call `.send()`. You should allow it to fall out of scope.
+ * The BavsInboundRequest ctor + callbacks deal with cleanup.
+ */
+class BavsInboundRequest : public Http::AsyncClient::Callbacks {
 public:
-    ~BavsOutboundCallbacks() = default;
-    BavsOutboundCallbacks() {};
-    BavsOutboundCallbacks(std::string id,
-                        std::unique_ptr<Http::RequestHeaderMapImpl> headers,
-                        Upstream::ClusterManager& cm, int num_retries,
-                        std::string fail_cluster, std::string cluster,
-                        std::string fail_cluster_path, UpstreamConfigSharedPtr config)
-        : id_(id), cluster_manager_(&cm), attempts_left_(num_retries),
-          fail_cluster_(fail_cluster), cluster_(cluster), headers_(std::move(headers)), buffer_(new Buffer::OwnedImpl),
-          headers_only_(false), fail_cluster_path_(fail_cluster_path), config_(config) {
-        cluster_manager_->storeCallbacksAndHeaders(id, this);
+    BavsInboundRequest(BavsFilterConfigSharedPtr config, Upstream::ClusterManager& cm,
+                       std::unique_ptr<Http::RequestHeaderMapImpl> inbound_headers,
+                       std::unique_ptr<Buffer::OwnedImpl> original_inbound_data,
+                       std::unique_ptr<Buffer::OwnedImpl> inbound_data_to_send,
+                       int retries_left, std::string span_id, std::string instance_id,
+                       std::map<std::string, std::string> saved_headers,
+                       bool inbound_data_is_json) :
+                       config_(config), cm_(cm), inbound_headers_(std::move(inbound_headers)),
+                       original_inbound_data_(std::move(original_inbound_data)),
+                       inbound_data_to_send_(std::move(inbound_data_to_send)),
+                       retries_left_(retries_left), span_id_(span_id), instance_id_(instance_id),
+                       saved_headers_(saved_headers),
+                       inbound_data_is_json_(inbound_data_is_json) {
+        Random::RandomGeneratorImpl rng;
+        cm_callback_id_ = rng.uuid();
+        cm_.storeRequestCallbacks(cm_callback_id_, this);
     }
 
-    void onHeaders(Http::ResponseHeaderMapPtr&& headers, bool) override;
-    void onComplete() override;
-    void onData(Buffer::Instance&, bool) override {}
+    void onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) override {
+        Buffer::OwnedImpl data_to_send;
+        std::string content_type;
 
-    void onTrailers(Http::ResponseTrailerMapPtr&&) override {}
-    void onReset() override {}
-    Http::RequestHeaderMapImpl& requestHeaderMap() override;
-    void setStream(Http::AsyncClient::Stream* stream) override;
-    Http::AsyncClient::Stream* getStream() override;
-    void addData(Buffer::Instance& data);
+        if (config_->isClosureTransport()) {
+            // If status is bad, we notify flowd or error gateway
+            std::string status_str(response->headers.getStatusValue());
+            int status = atoi(status_str.c_str());
+
+            if (status < 200 || status >= 300) {
+                if (retries_left_ > 0) {
+                    BavsInboundRequest retry_request(config_, cm_ , inbound_headers_,
+                                                    original_inbound_data_, inbound_data_to_send_,
+                                                    retries_left_ - 1, span_id_, instance_id_,
+                                                    saved_headers_, inbound_data_is_json_);
+                    retry_request.send();
+                    cm_.eraseRequestCallbacks(cm_callback_id_);
+                    return;
+                } else {
+                    callErrorGatewayOrFlowd(*response);
+                    cm_.eraseRequestCallbacks(cm_callback_id_);
+                    return;
+                }
+            }
+            // If we get here, then we know that the call to the inbound service (i.e. the
+            // one that this Envoy Proxy is proxying) succeeded.
+            // Since this is closure transport, we now need to merge the response with the
+            // previous closure context.
+            try {
+                data_to_send.add(mergeResponseAndContext(*response));
+                content_type = "application/json";
+            } catch (const EnvoyException& exn) {
+                std::cout << "Exception while merging context + response: "<< exn.what() << std::endl;
+                callErrorGatewayOrFlowd(*response);
+            }
+        } else {
+            data_to_send.add(response->data());
+            content_type = response->headers.getContentTypeValue();
+        }
+
+        size_t content_length = data_to_send.length();
+        for (UpstreamConfigSharedPtr& upstream : config_->forwards()) {
+            Http::RequestHeaderMapImplPtr request_headers = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
+                {
+                    {Http::Headers::get().Method, upstream.method()},
+                    {Http::Headers::get().Host, upstream.full_hostname() + ":" + std::to_string(upstream.port())},
+                    {Http::Headers::get().Path, upstream.path()},
+                    {Http::LowerCaseString("x-rexflow-wf-id"), config_->wfIdValue()},
+                    {Http::LowerCaseString("x-rexflow-task-id"), upstream.taskId()},
+                    {Http::LowerCaseString("x-flow-id"), instance_id_}
+                }
+            );
+            for (const auto& saved_header : saved_headers_) {
+                request_headers->setCopy(Http::LowerCaseString(saved_header.first), saved_header.second);
+            }
+            // Inject tracing context
+            request_headers->setCopy(Http::LowerCaseString("x-b3-spanid"), spanid_);
+            request_headers->setContentLength(content_length);
+            request_headers->setContentType(content_type);
+            BavsOutboundRequest outbound_request(/*todo*/);
+            outbound_request.send();
+        }
+        cm_.eraseRequestCallbacks(cm_callback_id_);
+    }
+
+    void onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason&&) override {
+        if (retries_left_ > 0) {
+            BavsInboundRequest retry_request(config_, cm_ , inbound_headers_,
+                                             original_inbound_data_, inbound_data_to_send_,
+                                             retries_left_ - 1, span_id_, instance_id_,
+                                             saved_headers_, inbound_data_is_json_);
+            retry_request.send();
+        } else {
+            notifyFlowdOfConnectionError();
+        }
+        cm_.eraseRequestCallbacks(cm_callback_id_);
+    }
+
+    void onBeforeFinalizeUpstreamSpan(Envoy::Tracing::Span&, const Http::ResponseHeaderMap*) override {}
+
+    void send() {
+        // First, form the message
+        RequestMessagePtr message();
+
+        RequestHeaderMapImpl* temp = message->headers();
+        inbound_headers_->iterate([temp] (const HeaderEntry& header) -> HeaderMap::Iterate {
+            std::string hdr_key(header.key().getStringView());
+            temp->setCopy(Http::LowerCaseString(hdr_key), header.value().getStringView());
+        });
+
+        message->body().add(inbound_data_to_send_);
+
+        // Second, send the message
+        Http::AsyncClient* client = NULL;
+        try {
+            client = &(cluster_manager_.httpAsyncClientForCluster(service_cluster_));
+        } catch(const EnvoyException&) {
+            // The cluster wasn't found, so we need to begin error processing.
+            notifyFlowdOfConnectionError();
+            return;
+        }
+        client->send(std::move(message), *this, Http::RequestOptions());
+    }
 
 private:
+    Http::RequestHeaderMapPtr createOutboundHeaders(UpstreamConfigSharedPtr upstream_ptr) {
+        const UpstreamConfig& upstream(*upstream_ptr);
 
-    void createAndSendErrorMessage(std::string msg);
-    // void doRetry(bool end_stream);
-    std::string id_;
-    Upstream::ClusterManager* cluster_manager_;
-    int attempts_left_;
-    std::string fail_cluster_;
-    std::string cluster_;
-    std::unique_ptr<Http::RequestHeaderMapImpl> headers_;
-    std::unique_ptr<Buffer::OwnedImpl> buffer_;
-    bool headers_only_ = false;
-    std::string fail_cluster_path_;
-    bool unretriable_failure_ = false;
-    bool retriable_failure_ = false;
-    Http::AsyncClient::Stream* request_stream_;
-    UpstreamConfigSharedPtr config_;
-};
+        // Create headers to send over to the next place.
+        std::unique_ptr<RequestHeaderMapImpl> hdrs = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
+            {
+                {Http::Headers::get().Method, upstream.method()},
+                {Http::Headers::get().Host, upstream.full_hostname() + ":" + std::to_string(upstream.port())},
+                {Http::Headers::get().Path, upstream.path()},
+                {Http::LowerCaseString("x-rexflow-wf-id"), config_->wfIdValue()},
+                {Http::LowerCaseString("x-rexflow-task-id"), upstream.taskId()},
+                {Http::LowerCaseString("x-flow-id"), instance_id_}
+            }
+        );
 
-enum BavsInboundCallbacksState {
-    DOING_RETRY,
-    DOING_ERROR_GATEWAY,
-    DOING_FLOWD_ERROR,
-    DOING_OUTBOUND_SEND
-};
-
-class BavsInboundCallbacks : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
-public:
-    BavsInboundCallbacks(std::string id, std::unique_ptr<Http::RequestHeaderMapImpl> headers,
-            Upstream::ClusterManager& cm, BavsFilterConfigSharedPtr config,
-            std::map<std::string, std::string> saved_headers, std::string instance_id,
-            std::string spanid, std::string context_input, std::string service_input, bool data_is_json,
-            int retries_left)
-        : cluster_manager_cb_id_(id), inbound_request_headers_(std::move(headers)), cluster_manager_(cm),
-          config_(config), saved_headers_(saved_headers), instance_id_(instance_id),
-          spanid_(spanid), context_input_(context_input), service_input_is_json_(data_is_json),
-          retries_left_(retries_left) {
-        cluster_manager_.storeCallbacksAndHeaders(cluster_manager_cb_id_, this);
+        for (const auto& saved_header : saved_headers_) {
+            hdrs->setCopy(Http::LowerCaseString(saved_header.first), saved_header.second);
+        }
+        // Inject tracing context
+        hdrs->setCopy(Http::LowerCaseString("x-b3-spanid"), spanid_);
+        return std::move(hdrs);
     }
 
-    void onHeaders(Http::ResponseHeaderMapPtr&& headers, bool end_stream) override; 
-    void sendHeaders(std::string cb_key, bool end_stream);
-    void sendShadowHeaders(Http::RequestHeaderMapImpl& original_headers);
-    void onData(Buffer::Instance& data, bool end_stream) override;
+    std::string mergeResponseAndContext(Http::ResponseMessagePtr& response) {
+        Json::ObjectSharedPtr updater = Json::Factory::loadFromString(response->data.toString());
 
-    void onTrailers(Http::ResponseTrailerMapPtr&&) override {}
-    void onReset() override {}
-    void onComplete() override {
-        // remove ourself from the clusterManager
-        cluster_manager_.eraseCallbacksAndHeaders(cluster_manager_cb_id_);
+        /**
+         * TODO: In the future, expand this section to support non-json messages, for example,
+         * passing a small image or a byte stream as a context variable.
+         */
+        if (!updater->isObject()) {
+            if (config_->outputParams().size() > 0) {
+                // TODO: in this line, we would parse the non-json content-type stuff.
+                throw new EnvoyException(
+                    "Tried to get variables, but response data was not a JSON object."
+                );
+            } else if (!inbound_data_is_json_) {
+                throw new EnvoyException("Neither input nor output is json.");
+            }
+            return original_inbound_data_->toString();
+        }
+        if (!inbound_data_is_json_)
+            return response->data().toString();
+
+        Json::ObjectSharedPtr updatee = Json::Factory::loadFromString(
+            original_inbound_data_.toString());
+
+        if (!updatee->isObject())
+            throw new EnvoyException("Received invalid input json from previous service.");
+
+        // At this point, we know that we have two valid json objects: the updater (the response)
+        // and the updatee (the closure context).
+        return merge_jsons(updatee, updater);
     }
-    Http::RequestHeaderMapImpl& requestHeaderMap() override { return *(inbound_request_headers_.get()); }
-    void setStream(Http::AsyncClient::Stream* stream) override { request_stream_ = stream;}
-    Http::AsyncClient::Stream* getStream() override { return request_stream_; }
-    void addData(Buffer::Instance& data) { service_input_.add(data); }
 
-private:
+    void notifyFlowdOfConnectionError() {
+        std::cout << "\n\n\n\nnotifyFlowdOfConnectionError()\n\n\n\n" << std::endl;
+    }
 
-    std::unique_ptr<RequestHeaderMapImpl> createOutboundHeaders(UpstreamConfigSharedPtr upstream_ptr);
+    void callErrorGatewayOrFlowd() {
+        std::cout << "\n\n\n\ncallErrorGatewayOrFlowd()\n\n\n\n" << std::endl;
+    }
 
-    // Method to retry initial inbound service call.
-    void doInboundRetry();
-
-    // Happy-Path methods for successful call to inbound service.
-    void prepareNextTaskMessage(Http::ResponseHeaderMapPtr&& headers, bool end_stream);
-    void sendNextTaskMessage(Buffer::Instance& data, bool end_stream);
-
-    // Sad-Path methods for when inbound task fails but we can still send to Error Gateway.
-    void prepareErrorGatewayMessage(Http::ResponseHeaderMapPtr&& headers, bool end_stream);
-    void sendErrorGatewayMessage(Buffer::Instance& data, bool end_stream);
-
-    // Angry-Path methods for total failure.
-    void prepareFlowdErrorMessage(Http::ResponseHeaderMapPtr&& headers, bool end_stream);
-    void sendFlowdErrorMessage(Buffer::Instance& data, bool end_stream);
-
-    // bookkeeping
-    std::string cluster_manager_cb_id_;
-    Upstream::ClusterManager& cluster_manager_;
     BavsFilterConfigSharedPtr config_;
-
-    // Stuff used by caller (bavs.cc) to send the initial inbound request
-    std::unique_ptr<Http::RequestHeaderMapImpl> inbound_request_headers_;
-    Http::AsyncClient::Stream* request_stream_;
-
-    // Bookkeeping
-    std::map<std::string, std::string> saved_headers_;
-    std::string instance_id_;
-    std::string spanid_;
-    std::vector<std::string> req_cb_keys;
-    Buffer::OwnedImpl next_task_outbound_data_;
-    std::string context_input_;
-    Buffer::OwnedImpl service_input_;
-    bool service_input_is_json_;
+    Upstream::ClusterManager& cm_;
+    std::unique_ptr<Http::RequestHeaderMapImpl> inbound_headers;
+    std::unique_ptr<Buffer::OwnedImpl> original_inbound_data_;
+    std::unique_ptr<Buffer::OwnedImpl> inbound_data_to_send_;
     int retries_left_;
-
-    BavsInboundCallbacksState state_;
-};
-
-using ClusterHostPair = std::pair<std::string, std::string>;
-
-class BavsErrorCallbacks : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
-public:
-    BavsErrorCallbacks(Buffer::OwnedImpl message_data,
-                       std::unique_ptr<Http::RequestHeaderMapIMpl> message_headers,
-                       Upstream::ClusterManager& cm, std::queue<ClusterHostPair> clusters);
-    BavsErrorCallbacks(Buffer::OwnedImpl request_data,
-                       std::unique_ptr<Http::RequestHeaderMapImpl> request_headers,
-                       Buffer::OwnedImpl response_data,
-                       std::unique_ptr<Http::ResponseHeaderMapImpl> response_headers,
-                       Upstream::ClusterManager& cm,
-                       std::queue<ClusterHostPair> cluster_queue);
-    void onHeaders(Http::ResponseHeaderMapPtr&&, bool) override;
-    void onTrailers(Http::ResponseTrailerMapPtr&&) override {}
-    void onComplete() override;
-    void onReset() override;
-    void onData(Buffer::Instance&, bool) override;
-    Http::RequestHeaderMap& requestHeaderMap() override;
-    void setStream(Http::AsyncClient::Stream* stream) override;
-    Http::AsyncClient::Stream* getStream() override;
-private:
-    Buffer::OwnedImpl message_body_;
-    Http::RequestHeaderMapImpl message_headers_;
-    Upstream::ClusterManager& cluster_manager_;
-    std::queue<ClusterHostPair> cluster_queue_;
+    std::string span_id_;
+    std::string instance_id_;
+    std::map<std::string, std::string> saved_headers_;
+    bool inbound_data_is_json_;
+    std::string cm_callback_id_;
 };
 
 class BavsFilter : public PassThroughFilter, public Logger::Loggable<Logger::Id::filter> {

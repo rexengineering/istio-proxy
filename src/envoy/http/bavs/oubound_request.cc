@@ -94,3 +94,50 @@ void BavsOutboundCallbacks::doRetry(bool end_stream) {
 
 } // namespace Envoy
 } // namespace Http
+
+
+class BavsOutboundCallbacks : public Envoy::Upstream::AsyncStreamCallbacksAndHeaders {
+public:
+    ~BavsOutboundCallbacks() = default;
+    BavsOutboundCallbacks() {};
+    BavsOutboundCallbacks(std::string id,
+                        std::unique_ptr<Http::RequestHeaderMapImpl> headers,
+                        Upstream::ClusterManager& cm, int num_retries,
+                        std::string fail_cluster, std::string cluster,
+                        std::string fail_cluster_path, UpstreamConfigSharedPtr config)
+        : id_(id), cluster_manager_(&cm), attempts_left_(num_retries),
+          fail_cluster_(fail_cluster), cluster_(cluster), headers_(std::move(headers)), buffer_(new Buffer::OwnedImpl),
+          headers_only_(false), fail_cluster_path_(fail_cluster_path), config_(config) {
+        cluster_manager_->storeCallbacksAndHeaders(id, this);
+    }
+
+    void onHeaders(Http::ResponseHeaderMapPtr&& headers, bool) override;
+    void onComplete() override;
+    void onData(Buffer::Instance&, bool) override {}
+
+    void onTrailers(Http::ResponseTrailerMapPtr&&) override {}
+    void onReset() override {}
+    Http::RequestHeaderMapImpl& requestHeaderMap() override;
+    void setStream(Http::AsyncClient::Stream* stream) override;
+    Http::AsyncClient::Stream* getStream() override;
+    void addData(Buffer::Instance& data);
+
+private:
+
+    void createAndSendErrorMessage(std::string msg);
+    // void doRetry(bool end_stream);
+    std::string id_;
+    Upstream::ClusterManager* cluster_manager_;
+    int attempts_left_;
+    std::string fail_cluster_;
+    std::string cluster_;
+    std::unique_ptr<Http::RequestHeaderMapImpl> headers_;
+    std::unique_ptr<Buffer::OwnedImpl> buffer_;
+    bool headers_only_ = false;
+    std::string fail_cluster_path_;
+    bool unretriable_failure_ = false;
+    bool retriable_failure_ = false;
+    Http::AsyncClient::Stream* request_stream_;
+    UpstreamConfigSharedPtr config_;
+};
+

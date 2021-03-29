@@ -96,9 +96,21 @@ FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, b
         }
     }
 
-    successful_response_ = false;
+    auto& active_span = decoder_callbacks_->activeSpan();
+    active_span.injectContext(*(request_headers_.get()));
+
+    auto *span_entry = request_headers_->get(Http::LowerCaseString("x-b3-spanid"));
+    if (span_entry) {
+        spanid_ = span_entry->value().getStringView();
+        std::cout << "got span entry: " << spanid_ << std::endl;
+    } else {
+        std::cout << "Didn't get span entry" << std::endl;
+    }
+
     is_workflow_ = true;
-    if (end_stream) sendHeaders(true);
+
+    if (end_stream) sendMessage();
+
     return FilterHeadersStatus::StopIteration;
 }
 
@@ -149,7 +161,7 @@ void BavsFilter::sendHeaders(bool end_stream) {
 FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream) {
     if (!is_workflow_) return FilterDataStatus::Continue;
 
-    request_data_.add(data);
+    inbound_data_.add(data);
     if (!end_stream) {
         return FilterDataStatus::StopIterationAndBuffer;
     }
@@ -162,7 +174,7 @@ FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream)
             return FilterDataStatus::Continue;
         }
 
-        std::string raw_input(request_data_.toString());
+        std::string raw_input(inbound_data_.toString());
 
         std::string new_input = "{}";
         try {
