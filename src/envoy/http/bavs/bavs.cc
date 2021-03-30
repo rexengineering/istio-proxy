@@ -46,7 +46,11 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
     task_id_ = proto_config.task_id();
     traffic_shadow_cluster_ = proto_config.traffic_shadow_cluster();
     traffic_shadow_path_ = proto_config.traffic_shadow_path();
-
+    for (auto iter=proto_config.headers_to_forward().begin();
+              iter != proto_config.headers_to_forward().end();
+              iter++) {
+        headers_to_forward_.push_back(*iter);
+    }
 }
 
 FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, bool) {
@@ -64,6 +68,16 @@ FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, b
             flow_id_ = std::string(entry->value().getStringView());
             wf_template_id_ = std::string(wf_template_entry->value().getStringView());
             is_workflow_ = true;
+
+            for (auto iter = config_->headersToForward().begin();
+                      iter != config_->headersToForward().end();
+                      iter++ ) {
+                // check if *iter is in headers. if so, add to request_headers
+                const Http::HeaderEntry* entry = headers.get(Http::LowerCaseString(*iter));
+                if (entry != NULL && entry->value() != NULL) {
+                    saved_headers_[*iter] = std::string(entry->value().getStringView());
+                }
+            }
         }
     }
     return FilterHeadersStatus::Continue;
@@ -123,12 +137,18 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
                     {Http::LowerCaseString("x-flow-id"), flow_id_}
                 }
             );
+
+            for (const auto& saved_header : saved_headers_) {
+                request_headers->setCopy(Http::LowerCaseString(saved_header.first), saved_header.second);
+            }
+
             // Inject tracing context
             Envoy::Tracing::Span& active_span = encoder_callbacks_->activeSpan();
             active_span.injectContext(*(request_headers.get()));
 
             const auto trace_hdr = request_headers->get(Http::LowerCaseString("x-b3-traceid"));
             if (trace_hdr) {
+                // return the trace-id to the caller
                 headers.setCopy(Http::LowerCaseString("x-b3-traceid"), std::string(trace_hdr->value().getStringView()));
             }
 
