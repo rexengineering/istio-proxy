@@ -139,7 +139,6 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap& headers, 
             );
 
             for (const auto& saved_header : saved_headers_) {
-                std::cout << "forwarding!!" << *iter << std::endl;
                 request_headers->setCopy(Http::LowerCaseString(saved_header.first), saved_header.second);
             }
 
