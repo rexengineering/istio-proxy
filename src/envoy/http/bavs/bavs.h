@@ -22,8 +22,11 @@
 namespace Envoy {
 namespace Http {
 
-#define REXFLOW_CONNECTION_ERROR_HDR "CONNECTION_ERROR"
-#define REXFLOW_APPLICATION_ERROR_HDR "APPLICATION_ERROR"
+#define ERROR_TYPE_HEADER "x-rexflow-error-type"
+#define CONNECTION_ERROR "FAILED_CONNECTION"
+#define CONTEXT_INPUT_PARSING_ERROR "FAILED_CONTEXT_INPUT_PARSING"
+#define CONTEXT_OUTPUT_PARSING_ERROR "FAILED_CONTEXT_OUTPUT_PARSING"
+#define TASK_ERROR "FAILED_TASK"
 
 std::string create_json_string(const std::map<std::string, std::string>& json_elements);
 std::string get_array_as_string(const Json::Object* json);
@@ -122,12 +125,19 @@ private:
     Http::RequestHeaderMapPtr createOutboundHeaders(UpstreamConfigSharedPtr upstream_ptr);
     std::string mergeResponseAndContext(Http::ResponseMessagePtr& response);
 
-    void notifyFlowdOfConnectionError() {
-        std::cout << "\n\n\n\nnotifyFlowdOfConnectionError()\n\n\n\n" << std::endl;
+    void raiseConnectionError() {
+        std::cout << "Raising Connection Error" << std::endl;
+        cm_.eraseRequestCallbacks(cm_callback_id_);
     }
 
-    void callErrorGatewayOrFlowd(Http::ResponseMessage&) {
+    void raiseContextOutputParsingError(Http::ResponseMessage&) {
+        std::cout << "\n\n\n\nraiseContextOutputParsingError())\n\n\n\n" << std::endl;
+        cm_.eraseRequestCallbacks(cm_callback_id_);
+    }
+
+    void raiseTaskError(Http::ResponseMessage&) {
         std::cout << "\n\n\n\ncallErrorGatewayOrFlowd()\n\n\n\n" << std::endl;
+        cm_.eraseRequestCallbacks(cm_callback_id_);
     }
 
     BavsFilterConfigSharedPtr config_;
@@ -165,14 +175,58 @@ private:
     std::string cm_callback_id_;
     std::string task_id_;
 
-    void notifyFlowdOfConnectionError() {
+    void raiseConnectionError() {
         std::cout << "\n\n\n\nnotifyFlowdOfConnectionError()\n\n\n\n" << std::endl;
     }
 
-    void notifyFlowdOfUnacceptedRequest() {
-        std::cout << "\n\n\n\nnotifyFlowdOfUnacceptedRequest()\n\n\n\n" << std::endl;
-    }
 };
+
+class BavsErrorRequest : public Http::AsyncClient::Callbacks {
+/**
+ * Defines a last-ditch effort to notify Flowd that something's gone horribly wrong.
+ * If this request fails, then the WF Instance becomes orphaned.
+ */
+public:
+    BavsErrorRequest(Upstream::ClusterManager& cm, std::string cluster,
+                     std::unique_ptr<Buffer::OwnedImpl> data_to_send,
+                     std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send);
+    ~BavsErrorRequest() = default;
+    void onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) override;
+    void onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason) override;
+    void onBeforeFinalizeUpstreamSpan(Envoy::Tracing::Span&, const Http::ResponseHeaderMap*) override {}
+    void send();
+
+private:
+    Upstream::ClusterManager& cm_;
+    std::string cluster_;
+    std::unique_ptr<Buffer::OwnedImpl> data_to_send_;
+    std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send_;
+    std::string cm_callback_id_;
+};
+
+class BavsTaskErrorRequest : public Http::AsyncClient::Callbacks {
+public:
+    BavsTaskErrorRequest(Upstream::ClusterManager& cm, std::string cluster,
+                     std::unique_ptr<Buffer::OwnedImpl> data_to_send,
+                     std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send,
+                     BavsFilterConfigSharedPtr config,
+                     UpstreamConfigSharedPtr upstream);
+    ~BavsTaskErrorRequest() = default;
+    void onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) override;
+    void onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason) override;
+    void onBeforeFinalizeUpstreamSpan(Envoy::Tracing::Span&, const Http::ResponseHeaderMap*) override {}
+    void send();
+
+private:
+    Upstream::ClusterManager& cm_;
+    std::string cluster_;
+    std::unique_ptr<Buffer::OwnedImpl> data_to_send_;
+    std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send_;
+    std::string cm_callback_id_;
+    BavsFilterConfigSharedPtr config_;
+    UpstreamConfigSharedPtr upstream_;
+};
+
 
 class BavsFilter : public PassThroughFilter, public Logger::Loggable<Logger::Id::filter> {
 private:
@@ -191,7 +245,7 @@ private:
     std::string spanid_;
 
     void sendMessage();
-    void createAndSendErrorMessage(std::string msg);
+    void raiseContextInputError();
 
 public:
     BavsFilter(BavsFilterConfigSharedPtr config, Upstream::ClusterManager& cluster_manager)

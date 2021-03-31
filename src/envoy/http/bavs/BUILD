@@ -20,7 +20,8 @@ envoy_cc_library(
         "bavs_json.cc",
         "inbound_request.cc",
         "outbound_request.cc",
-        "error_request.cc"
+        "error_request.cc",
+        "task_error_request.cc"
     ],
     hdrs = ["bavs.h"],
     repository = "@envoy",

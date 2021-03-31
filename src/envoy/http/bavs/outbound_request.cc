@@ -36,7 +36,7 @@ void BavsOutboundRequest::send() {
         client = &(cm_.httpAsyncClientForCluster(target_cluster_));
     } catch(const EnvoyException&) {
         // The cluster wasn't found, so we need to begin error processing.
-        notifyFlowdOfUnacceptedRequest();
+        raiseConnectionError();
         return;
     }
     client->send(std::move(message), *this, Http::AsyncClient::RequestOptions());
@@ -47,7 +47,7 @@ void BavsOutboundRequest::onSuccess(const Http::AsyncClient::Request&, Http::Res
     int status = atoi(status_str.c_str());
 
     if (status < 200 || status >= 300) {
-        notifyFlowdOfConnectionError();
+        raiseConnectionError();
     }
 }
 
@@ -58,7 +58,7 @@ void BavsOutboundRequest::onFailure(const Http::AsyncClient::Request&, Http::Asy
             std::move(data_to_send_), task_id_);
         retry_request->send();
     } else {
-        notifyFlowdOfConnectionError();
+        raiseConnectionError();
     }
 }
 

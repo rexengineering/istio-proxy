@@ -44,8 +44,7 @@ void BavsInboundRequest::onSuccess(const Http::AsyncClient::Request&,
                 cm_.eraseRequestCallbacks(cm_callback_id_);
                 return;
             } else {
-                callErrorGatewayOrFlowd(*response);
-                cm_.eraseRequestCallbacks(cm_callback_id_);
+                raiseTaskError(*response);
                 return;
             }
         }
@@ -54,12 +53,11 @@ void BavsInboundRequest::onSuccess(const Http::AsyncClient::Request&,
         // Since this is closure transport, we now need to merge the response with the
         // previous closure context.
         try {
-            std::cout << "about to merge response + context" << std::endl;
             data_to_send.add(mergeResponseAndContext(response));
             content_type = "application/json";
         } catch (const EnvoyException& exn) {
-            std::cout << "Exception while merging context + response: "<< exn.what() << std::endl;
-            callErrorGatewayOrFlowd(*response);
+            raiseContextOutputParsingError(*response);
+            return;
         }
     } else {
         data_to_send.add(response->body());
@@ -112,7 +110,7 @@ void BavsInboundRequest::onFailure(const Http::AsyncClient::Request&,
                                          service_cluster_);
         retry_request->send();
     } else {
-        notifyFlowdOfConnectionError();
+        raiseConnectionError();
     }
     cm_.eraseRequestCallbacks(cm_callback_id_);
 }
@@ -136,7 +134,7 @@ void BavsInboundRequest::send() {
         client = &(cm_.httpAsyncClientForCluster(service_cluster_));
     } catch(const EnvoyException&) {
         // The cluster wasn't found, so we need to begin error processing.
-        notifyFlowdOfConnectionError();
+        raiseConnectionError();
         return;
     }
     client->send(std::move(message), *this, Http::AsyncClient::RequestOptions());

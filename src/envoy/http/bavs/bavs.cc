@@ -54,8 +54,8 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
     }
 }
 
-void BavsFilter::createAndSendErrorMessage(std::string message) {
-    std::cout << "createAndSendMessage called with " << message << std::endl;
+void BavsFilter::raiseContextInputError() {
+    std::cout << "raiseContextInputError called." << std::endl;
 }
 
 void BavsFilter::sendMessage() {
@@ -146,11 +146,8 @@ FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream)
 
     if (config_->isClosureTransport()) {
         if (inbound_headers_->getContentTypeValue() != "application/json") {
-            // createAndSendErrorMessage(
-            //     "Input to closure-enabled WF Service was not in the recognized json format."
-            // );
-            std::cout << "\n\n\n\n\nHOLYBUCKETS\n\n\n\n" << std::endl;
-            return FilterDataStatus::Continue;
+            raiseContextInputError();
+            return FilterDataStatus::StopIterationAndBuffer;
         }
 
         std::string raw_input(original_inbound_data_->toString());
@@ -171,11 +168,8 @@ FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream)
                 inbound_data_is_json_ = true;
             }
         } catch(const EnvoyException& exn) {
-            // TODO: handle errors
-            createAndSendErrorMessage(
-                "Failed while unmarshalling closure."
-            );
-            return FilterDataStatus::Continue;
+            raiseContextInputError();
+            return FilterDataStatus::StopIterationAndBuffer;
         } // try/catch()
 
     } /* if (config_->isClosureTransport()) */ else { 
@@ -192,7 +186,6 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap&, bool) {
 
 FilterDataStatus BavsFilter::encodeData(Buffer::Instance&, bool) {
     return FilterDataStatus::Continue;
-    // intercepts the response data
 }
 
 } // namespace Http
