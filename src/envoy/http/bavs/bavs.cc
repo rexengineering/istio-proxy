@@ -42,6 +42,7 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
     traffic_shadow_path_ = proto_config.traffic_shadow_path();
     is_closure_transport_ = proto_config.closure_transport();
     upstream_port_ = proto_config.upstream_port();
+    inbound_retries_ = proto_config.inbound_retries();
     for (const std::string& header : proto_config.headers_to_forward()) {
         headers_to_forward_.push_back(header);
     }
@@ -51,6 +52,20 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
     for (auto param : proto_config.output_params()) {
         output_params_.push_back(param);
     }
+}
+
+void BavsFilter::createAndSendErrorMessage(std::string message) {
+    std::cout << "createAndSendMessage called with " << message << std::endl;
+}
+
+void BavsFilter::sendMessage() {
+    BavsInboundRequest inbound_request(config_, cluster_manager_, std::move(inbound_headers_),
+                                       std::move(original_inbound_data_),
+                                       std::move(inbound_data_to_send_), config_->inboundRetries(),
+                                       spanid_, instance_id_, saved_headers_,
+                                       true, service_cluster_);
+    inbound_request.send();
+
 }
 
 FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, bool end_stream) {
@@ -71,7 +86,7 @@ FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, b
     }
     instance_id_ = instance_entry->value().getStringView();
 
-    RequestHeaderMapImpl* temp = request_headers_.get();
+    RequestHeaderMapImpl* temp = inbound_headers_.get();
     headers.iterate(
         [temp](const HeaderEntry& header) -> HeaderMap::Iterate {
             std::string key_string(header.key().getStringView());
@@ -97,9 +112,9 @@ FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, b
     }
 
     auto& active_span = decoder_callbacks_->activeSpan();
-    active_span.injectContext(*(request_headers_.get()));
+    active_span.injectContext(*(inbound_headers_.get()));
 
-    auto *span_entry = request_headers_->get(Http::LowerCaseString("x-b3-spanid"));
+    auto *span_entry = inbound_headers_->get(Http::LowerCaseString("x-b3-spanid"));
     if (span_entry) {
         spanid_ = span_entry->value().getStringView();
         std::cout << "got span entry: " << spanid_ << std::endl;
@@ -114,67 +129,24 @@ FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, b
     return FilterHeadersStatus::StopIteration;
 }
 
-void BavsFilter::sendHeaders(bool end_stream) {
-    if (!is_workflow_) return;
-    Random::RandomGeneratorImpl rng;
-    callback_key_ = rng.uuid();
-
-    auto& active_span = decoder_callbacks_->activeSpan();
-    active_span.injectContext(*(request_headers_.get()));
-
-    auto *entry = request_headers_->get(Http::LowerCaseString("x-b3-spanid"));
-    if (entry) {
-        spanid_ = entry->value().getStringView();
-    }
-
-    Http::AsyncClient* client = nullptr;
-    try {
-        client = &(cluster_manager_.httpAsyncClientForCluster(service_cluster_));
-    } catch(const EnvoyException&) {
-        // The cluster wasn't found, so we need to begin error processing.
-        createAndSendErrorMessage();
-        return;
-    }
-
-    bool is_json = request_headers_->getContentTypeValue() == "application/json";
-
-    callbacks_ = new BavsInboundCallbacks(
-        callback_key_, std::move(request_headers_), cluster_manager_, config_,
-        saved_headers_, instance_id_, spanid_, request_data_.toString(),
-        is_json);
-
-    Http::AsyncClient::Stream* stream;
-    callbacks_->setStream(client->start(*callbacks_, AsyncClient::StreamOptions()));
-
-    // perform check to make sure it worked
-    stream = callbacks_->getStream();
-    if (!stream) {
-        // This failure means that the inbound service is fuly down.
-        createAndSendErrorMessage();
-        return;
-    }
-    Http::RequestHeaderMapImpl& hdrs = callbacks_->requestHeaderMap();
-    stream->sendHeaders(hdrs, end_stream);
-}
-
-
 FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream) {
     if (!is_workflow_) return FilterDataStatus::Continue;
 
-    inbound_data_.add(data);
+    original_inbound_data_->add(data);
     if (!end_stream) {
         return FilterDataStatus::StopIterationAndBuffer;
     }
 
     if (config_->isClosureTransport()) {
-        if (request_headers_->getContentTypeValue() != "application/json") {
-            createAndSendErrorMessage(
-                "Input to closure-enabled WF Service was not in the recognized json format."
-            );
+        if (inbound_headers_->getContentTypeValue() != "application/json") {
+            // createAndSendErrorMessage(
+            //     "Input to closure-enabled WF Service was not in the recognized json format."
+            // );
+            std::cout << "\n\n\n\n\nHOLYBUCKETS\n\n\n\n" << std::endl;
             return FilterDataStatus::Continue;
         }
 
-        std::string raw_input(inbound_data_.toString());
+        std::string raw_input(original_inbound_data_->toString());
 
         std::string new_input = "{}";
         try {
@@ -190,38 +162,13 @@ FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream)
             );
             return FilterDataStatus::Continue;
         }
-        request_data_.drain(request_data_.length());
 
-        request_data_.add(new_input);
-        request_headers_->setContentLength(std::to_string(request_data_.length()));
+        inbound_data_to_send_->add(new_input);
+        inbound_headers_->setContentLength(inbound_data_to_send_->length());
+        inbound_headers_->setContentType("application/json");
     }
 
-    sendHeaders(false);
-
-
-    BavsInboundCallbacks *cb = dynamic_cast<BavsInboundCallbacks*>(
-        cluster_manager_.getCallbacksAndHeaders(callback_key_));
-    Http::AsyncClient::Stream* stream = cb ? cb->getStream() : NULL;
-
-    if (!cb || !stream) {
-        createAndSendErrorMessage("Lost connection to upstream service.");
-        return FilterDataStatus::Continue;
-    }
-
-    // first notify caller that we gotchu buddy
-    std::string temp = spanid_;
-    decoder_callbacks_->sendLocalReply(
-        Envoy::Http::Code::Accepted,
-        "For my ally is the Force, and a powerful ally it is.",
-        [temp] (ResponseHeaderMap& headers) -> void {
-            headers.setCopy(Http::LowerCaseString("x-b3-spanid"), temp);
-        },
-        absl::nullopt,
-        ""
-    );
-
-    cb->addData(request_data_);
-    stream->sendData(request_data_, true);
+    sendMessage();
     return FilterDataStatus::StopIterationAndBuffer;
 }
 

@@ -17,10 +17,10 @@ envoy_cc_library(
     name = "bavs_lib",
     srcs = [
         "bavs.cc",
-        "inbound_callbacks.cc",
         "bavs_json.cc",
-        "error_callbacks.cc",
-        "outbound_callbacks.cc"
+        "inbound_request.cc",
+        "outbound_request.cc",
+        "error_request.cc"
     ],
     hdrs = ["bavs.h"],
     repository = "@envoy",
