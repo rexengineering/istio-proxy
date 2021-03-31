@@ -59,11 +59,12 @@ void BavsFilter::createAndSendErrorMessage(std::string message) {
 }
 
 void BavsFilter::sendMessage() {
-    BavsInboundRequest inbound_request(config_, cluster_manager_, std::move(inbound_headers_),
-                                       std::move(original_inbound_data_),
-                                       std::move(inbound_data_to_send_), config_->inboundRetries(),
-                                       spanid_, instance_id_, saved_headers_,
-                                       true, service_cluster_);
+    BavsInboundRequest* inbound_request = new BavsInboundRequest(
+            config_, cluster_manager_, std::move(inbound_headers_),
+            std::move(original_inbound_data_),
+            std::move(inbound_data_to_send_), config_->inboundRetries(),
+            spanid_, instance_id_, saved_headers_,
+            true, service_cluster_);
     inbound_request.send();
 
 }

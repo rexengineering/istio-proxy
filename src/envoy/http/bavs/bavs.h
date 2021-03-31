@@ -99,8 +99,8 @@ using BavsFilterConfigSharedPtr = std::shared_ptr<BavsFilterConfig>;
 
 /**
  * Usage: To send an inbound Workflow request and do appropriate error handling + forward
- * response to proper next service in workflow, simply declare a BavsInboundRequest object
- * on the stack and call `.send()`. You should allow it to fall out of scope.
+ * response to proper next service in workflow, simply allocate a new BavsInboundRequest object
+ * and call `->send()`. You should allow it to fall out of scope.
  * The BavsInboundRequest ctor + callbacks deal with cleanup.
  */
 class BavsInboundRequest : public Http::AsyncClient::Callbacks {
