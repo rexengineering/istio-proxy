@@ -59,6 +59,17 @@ void BavsFilter::createAndSendErrorMessage(std::string message) {
 }
 
 void BavsFilter::sendMessage() {
+    std::string temp = spanid_;
+    decoder_callbacks_->sendLocalReply(
+        Envoy::Http::Code::Accepted,
+        "For my ally is the Force, and a powerful ally it is.",
+        [temp] (ResponseHeaderMap& headers) -> void {
+            std::cout << "setting spanid: "<< temp << std::endl;
+            headers.setCopy(Http::LowerCaseString("x-b3-traceid"), temp);
+        },
+        absl::nullopt,
+        ""
+    );
     BavsInboundRequest* inbound_request = new BavsInboundRequest(
             config_, cluster_manager_, std::move(inbound_headers_),
             std::move(original_inbound_data_),
@@ -114,7 +125,7 @@ FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, b
     auto& active_span = decoder_callbacks_->activeSpan();
     active_span.injectContext(*(inbound_headers_.get()));
 
-    auto *span_entry = inbound_headers_->get(Http::LowerCaseString("x-b3-spanid"));
+    auto *span_entry = inbound_headers_->get(Http::LowerCaseString("x-b3-traceid"));
     if (span_entry) {
         spanid_ = span_entry->value().getStringView();
     }
