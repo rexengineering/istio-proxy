@@ -21,6 +21,55 @@ BavsInboundRequest::BavsInboundRequest(BavsFilterConfigSharedPtr config, Upstrea
     cm_.storeRequestCallbacks(cm_callback_id_, this);
 }
 
+void BavsInboundRequest::raiseTaskError(Http::ResponseMessage& msg) {
+    std::string error_message = "Service task failed.";
+    std::string error_data = createErrorMessage(TASK_ERROR, error_message,
+                                                *original_inbound_data_,
+                                                *inbound_headers_, msg);
+
+    std::unique_ptr<Buffer::OwnedImpl> buf = std::make_unique<Buffer::OwnedImpl>();
+    buf->add(error_data);
+    BavsErrorRequest* error_req = new BavsErrorRequest(
+                                cm_, config_->flowdCluster(), std::move(buf),
+                                std::move(inbound_headers_));
+    error_req->send();
+
+    cm_.eraseRequestCallbacks(cm_callback_id_);
+}
+
+void BavsInboundRequest::raiseContextOutputParsingError(Http::ResponseMessage& msg) {
+    std::string error_message = "Failed parsing service response for output context params.";
+    std::string error_data = createErrorMessage(CONTEXT_OUTPUT_PARSING_ERROR, error_message,
+                                                *original_inbound_data_,
+                                                *inbound_headers_, msg);
+
+    std::unique_ptr<Buffer::OwnedImpl> buf = std::make_unique<Buffer::OwnedImpl>();
+    buf->add(error_data);
+    BavsErrorRequest* error_req = new BavsErrorRequest(
+                                cm_, config_->flowdCluster(), std::move(buf),
+                                std::move(inbound_headers_));
+    error_req->send();
+
+    cm_.eraseRequestCallbacks(cm_callback_id_);
+}
+
+void BavsInboundRequest::raiseConnectionError() {
+    std::string error_message = "Failed connecting to service task.";
+    std::string error_data = createErrorMessage(CONNECTION_ERROR, error_message,
+                                                *original_inbound_data_,
+                                                *inbound_headers_);
+
+    std::unique_ptr<Buffer::OwnedImpl> buf = std::make_unique<Buffer::OwnedImpl>();
+    buf->add(error_data);
+    BavsErrorRequest* error_req = new BavsErrorRequest(
+                                cm_, config_->flowdCluster(), std::move(buf),
+                                std::move(inbound_headers_));
+    error_req->send();
+
+    cm_.eraseRequestCallbacks(cm_callback_id_);
+
+}
+
 void BavsInboundRequest::onSuccess(const Http::AsyncClient::Request&,
                                    Http::ResponseMessagePtr&& response) {
     Buffer::OwnedImpl data_to_send;

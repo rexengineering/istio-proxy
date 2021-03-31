@@ -133,20 +133,9 @@ private:
     Http::RequestHeaderMapPtr createOutboundHeaders(UpstreamConfigSharedPtr upstream_ptr);
     std::string mergeResponseAndContext(Http::ResponseMessagePtr& response);
 
-    void raiseConnectionError() {
-        std::cout << "Raising Connection Error" << std::endl;
-        cm_.eraseRequestCallbacks(cm_callback_id_);
-    }
-
-    void raiseContextOutputParsingError(Http::ResponseMessage&) {
-        std::cout << "\n\n\n\nraiseContextOutputParsingError())\n\n\n\n" << std::endl;
-        cm_.eraseRequestCallbacks(cm_callback_id_);
-    }
-
-    void raiseTaskError(Http::ResponseMessage&) {
-        std::cout << "\n\n\n\ncallErrorGatewayOrFlowd()\n\n\n\n" << std::endl;
-        cm_.eraseRequestCallbacks(cm_callback_id_);
-    }
+    void raiseConnectionError();
+    void raiseContextOutputParsingError(Http::ResponseMessage&); 
+    void raiseTaskError(Http::ResponseMessage&);
 
     BavsFilterConfigSharedPtr config_;
     Upstream::ClusterManager& cm_;
