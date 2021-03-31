@@ -90,10 +90,11 @@ void BavsInboundRequest::onSuccess(const Http::AsyncClient::Request&,
 
         std::string cluster_string = "outbound|" + std::to_string(upstream->port());
         cluster_string += "||" + upstream->full_hostname();
-        BavsOutboundRequest outbound_request(cm_, cluster_string, config_->flowdCluster(),
+        BavsOutboundRequest* outbound_request = new BavsOutboundRequest(
+                                             cm_, cluster_string, config_->flowdCluster(),
                                              upstream->totalAttempts() - 1, std::move(request_headers),
                                              std::move(data_to_send_to_this_upstream), upstream->taskId());
-        outbound_request.send();
+        outbound_request->send();
     }
     cm_.eraseRequestCallbacks(cm_callback_id_);
 }

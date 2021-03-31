@@ -66,7 +66,6 @@ void BavsFilter::sendMessage() {
             spanid_, instance_id_, saved_headers_,
             true, service_cluster_);
     inbound_request->send();
-
 }
 
 FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, bool end_stream) {
@@ -118,9 +117,6 @@ FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, b
     auto *span_entry = inbound_headers_->get(Http::LowerCaseString("x-b3-spanid"));
     if (span_entry) {
         spanid_ = span_entry->value().getStringView();
-        std::cout << "got span entry: " << spanid_ << std::endl;
-    } else {
-        std::cout << "Didn't get span entry" << std::endl;
     }
 
     is_workflow_ = true;
@@ -167,6 +163,8 @@ FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream)
         inbound_data_to_send_->add(new_input);
         inbound_headers_->setContentLength(inbound_data_to_send_->length());
         inbound_headers_->setContentType("application/json");
+    } else {
+        inbound_data_to_send_->add(*original_inbound_data_);
     }
 
     sendMessage();
