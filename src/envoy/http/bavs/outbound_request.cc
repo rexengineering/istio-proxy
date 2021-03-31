@@ -43,7 +43,6 @@ void BavsOutboundRequest::send() {
 }
 
 void BavsOutboundRequest::onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) {
-    std::cout << "hi from onsuccess() " << std::endl;
     std::string status_str(response->headers().getStatusValue());
     int status = atoi(status_str.c_str());
 
@@ -53,7 +52,6 @@ void BavsOutboundRequest::onSuccess(const Http::AsyncClient::Request&, Http::Res
 }
 
 void BavsOutboundRequest::onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason) {
-    std::cout << "Hi from onFailure() " << std::endl;
     if (retries_left_ > 0) {
         BavsOutboundRequest *retry_request = new BavsOutboundRequest(
             cm_, target_cluster_, error_cluster_, retries_left_ - 1, std::move(headers_to_send_),

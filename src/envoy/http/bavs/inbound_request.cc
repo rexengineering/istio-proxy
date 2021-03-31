@@ -54,6 +54,7 @@ void BavsInboundRequest::onSuccess(const Http::AsyncClient::Request&,
         // Since this is closure transport, we now need to merge the response with the
         // previous closure context.
         try {
+            std::cout << "about to merge response + context" << std::endl;
             data_to_send.add(mergeResponseAndContext(response));
             content_type = "application/json";
         } catch (const EnvoyException& exn) {
@@ -166,31 +167,38 @@ Http::RequestHeaderMapPtr BavsInboundRequest::createOutboundHeaders(
 }
 
 std::string BavsInboundRequest::mergeResponseAndContext(Http::ResponseMessagePtr& response) {
-    Json::ObjectSharedPtr updater = Json::Factory::loadFromString(response->body().toString());
-
+    Json::ObjectSharedPtr response_json = Json::Factory::loadFromString(response->body().toString());
+    std::string updatee_string;
     /**
      * TODO: In the future, expand this section to support non-json messages, for example,
      * passing a small image or a byte stream as a context variable.
      */
-    if (!updater->isObject()) {
+    if (!response_json->isObject()) {
         if (config_->outputParams().size() > 0) {
             // TODO: in this line, we would parse the non-json content-type stuff.
-            throw new EnvoyException(
+            throw EnvoyException(
                 "Tried to get variables, but response data was not a JSON object."
             );
         } else if (!inbound_data_is_json_) {
-            throw new EnvoyException("Neither input nor output is json.");
+            throw EnvoyException("Neither input nor output is json.");
         }
         return original_inbound_data_->toString();
     }
-    if (!inbound_data_is_json_)
-        return response->body().toString();
 
-    Json::ObjectSharedPtr updatee = Json::Factory::loadFromString(
-        original_inbound_data_->toString());
+    std::string updater_string = build_json_from_params(response_json, config_->outputParams());
+    Json::ObjectSharedPtr updater = Json::Factory::loadFromString(updater_string);
+
+    if (inbound_data_is_json_) {
+        updatee_string = original_inbound_data_->toString();
+    } else {
+        // We're in the first step of workflow and the input data was ignorable.
+        updatee_string = "{}";
+    }
+
+    Json::ObjectSharedPtr updatee = Json::Factory::loadFromString(updatee_string);
 
     if (!updatee->isObject())
-        throw new EnvoyException("Received invalid input json from previous service.");
+        throw EnvoyException("Received invalid input json from previous service.");
 
     // At this point, we know that we have two valid json objects: the updater (the response)
     // and the updatee (the closure context).

@@ -64,7 +64,6 @@ void BavsFilter::sendMessage() {
         Envoy::Http::Code::Accepted,
         "For my ally is the Force, and a powerful ally it is.",
         [temp] (ResponseHeaderMap& headers) -> void {
-            std::cout << "setting spanid: "<< temp << std::endl;
             headers.setCopy(Http::LowerCaseString("x-b3-traceid"), temp);
         },
         absl::nullopt,
@@ -75,7 +74,7 @@ void BavsFilter::sendMessage() {
             std::move(original_inbound_data_),
             std::move(inbound_data_to_send_), config_->inboundRetries(),
             spanid_, instance_id_, saved_headers_,
-            true, service_cluster_);
+            inbound_data_is_json_, service_cluster_);
     inbound_request->send();
 }
 
@@ -160,21 +159,26 @@ FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream)
         try {
             Json::ObjectSharedPtr json = Json::Factory::loadFromString(raw_input);
             if (!json->isObject()) {
-                throw new EnvoyException("Incoming data not an object.");
+                if (!config_->inputParams().empty()) {
+                    throw EnvoyException("Incoming data not an object, yet we needed to unmarshal.");
+                }
+                inbound_data_to_send_->add(*original_inbound_data_);
+            } else {
+                new_input = build_json_from_params(json, config_->inputParams());
+                inbound_data_to_send_->add(new_input);
+                inbound_headers_->setContentLength(inbound_data_to_send_->length());
+                inbound_headers_->setContentType("application/json");
+                inbound_data_is_json_ = true;
             }
-            new_input = build_json_from_params(json, config_->inputParams());
         } catch(const EnvoyException& exn) {
             // TODO: handle errors
             createAndSendErrorMessage(
                 "Failed while unmarshalling closure."
             );
             return FilterDataStatus::Continue;
-        }
+        } // try/catch()
 
-        inbound_data_to_send_->add(new_input);
-        inbound_headers_->setContentLength(inbound_data_to_send_->length());
-        inbound_headers_->setContentType("application/json");
-    } else {
+    } /* if (config_->isClosureTransport()) */ else { 
         inbound_data_to_send_->add(*original_inbound_data_);
     }
 

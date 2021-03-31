@@ -184,6 +184,8 @@ private:
     std::unique_ptr<Buffer::OwnedImpl> inbound_data_to_send_;
     std::string service_cluster_;
 
+    bool inbound_data_is_json_;
+
     std::string instance_id_;
     std::map<std::string, std::string> saved_headers_;
     std::string spanid_;
@@ -197,7 +199,8 @@ public:
       inbound_headers_(Http::RequestHeaderMapImpl::create()),
       original_inbound_data_(std::make_unique<Buffer::OwnedImpl>()),
       inbound_data_to_send_(std::make_unique<Buffer::OwnedImpl>()),
-      service_cluster_("inbound|" + std::to_string(config->upstreamPort()) + "||") {}
+      service_cluster_("inbound|" + std::to_string(config->upstreamPort()) + "||"),
+      inbound_data_is_json_(false) {}
 
     FilterDataStatus decodeData(Buffer::Instance&, bool);
     FilterDataStatus encodeData(Buffer::Instance&, bool);
