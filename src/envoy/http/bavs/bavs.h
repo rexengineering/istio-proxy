@@ -28,11 +28,19 @@ namespace Http {
 #define CONTEXT_OUTPUT_PARSING_ERROR "FAILED_CONTEXT_OUTPUT_PARSING"
 #define TASK_ERROR "FAILED_TASK"
 
+std::string jstringify(const std::string&);
+std::string dumpHeaders(Http::RequestOrResponseHeaderMap& hdrs);
 std::string create_json_string(const std::map<std::string, std::string>& json_elements);
 std::string get_array_as_string(const Json::Object* json);
 std::string get_object_as_string(const Json::Object* json);
 std::string build_json_from_params(const Json::ObjectSharedPtr, const std::vector<bavs::BAVSParameter>);
 std::string merge_jsons(const Json::ObjectSharedPtr original, const Json::ObjectSharedPtr updater);
+
+std::string createErrorMessage(std::string error_code, std::string error_msg,
+                               Buffer::OwnedImpl& input_data, Http::RequestHeaderMap& input_headers,
+                               Http::ResponseMessage& response);
+std::string createErrorMessage(std::string error_code, std::string error_msg,
+                               Buffer::OwnedImpl& input_data, Http::RequestHeaderMap& input_headers);
 
 class UpstreamConfig {
 public:
@@ -245,7 +253,7 @@ private:
     std::string spanid_;
 
     void sendMessage();
-    void raiseContextInputError();
+    void raiseContextInputError(std::string msg);
 
 public:
     BavsFilter(BavsFilterConfigSharedPtr config, Upstream::ClusterManager& cluster_manager)

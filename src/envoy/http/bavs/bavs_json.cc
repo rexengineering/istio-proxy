@@ -9,6 +9,24 @@
 namespace Envoy {
 namespace Http {
 
+std::string dumpHeaders(Http::RequestOrResponseHeaderMap& hdrs) {
+    std::map<std::string, std::string> json_elements;
+    std::map<std::string, std::string>* temp = &json_elements;
+    hdrs.iterate(
+        [temp](const HeaderEntry& header) -> HeaderMap::Iterate {
+            std::string keystring(header.key().getStringView());
+            std::string valstring(header.value().getStringView());
+            (*temp)[keystring] = jstringify(valstring);
+            return HeaderMap::Iterate::Continue;
+        }
+    );
+    return create_json_string(json_elements);
+}
+
+std::string jstringify(const std::string& st) {
+    return "\"" + st + "\"";
+}
+
 std::string create_json_string(const std::map<std::string, std::string>& json_elements) {
     std::stringstream ss;
     size_t num_params = json_elements.size();
