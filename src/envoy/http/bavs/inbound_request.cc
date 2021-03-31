@@ -93,14 +93,14 @@ void BavsInboundRequest::onSuccess(const Http::AsyncClient::Request&,
 void BavsInboundRequest::onFailure(const Http::AsyncClient::Request&,
                                    Http::AsyncClient::FailureReason) {
     if (retries_left_ > 0) {
-        BavsInboundRequest retry_request = new BavsInboundRequest(
+        BavsInboundRequest* retry_request = new BavsInboundRequest(
                                          config_, cm_ , std::move(inbound_headers_),
                                          std::move(original_inbound_data_),
                                          std::move(inbound_data_to_send_),
                                          retries_left_ - 1, span_id_, instance_id_,
                                          saved_headers_, inbound_data_is_json_,
                                          service_cluster_);
-        retry_request.send();
+        retry_request->send();
     } else {
         notifyFlowdOfConnectionError();
     }

@@ -65,7 +65,7 @@ void BavsFilter::sendMessage() {
             std::move(inbound_data_to_send_), config_->inboundRetries(),
             spanid_, instance_id_, saved_headers_,
             true, service_cluster_);
-    inbound_request.send();
+    inbound_request->send();
 
 }
 
