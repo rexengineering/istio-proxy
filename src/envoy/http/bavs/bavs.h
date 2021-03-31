@@ -144,13 +144,34 @@ private:
     std::string service_cluster_;
 };
 
-class BavsOutboundRequest {
+class BavsOutboundRequest : public Http::AsyncClient::Callbacks {
 public:
-    BavsOutboundRequest() {}
+    BavsOutboundRequest(Upstream::ClusterManager& cm, std::string target_cluster, std::string error_cluster,
+                        int retries_left, std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send,
+                        std::unique_ptr<Buffer::OwnedImpl> data_to_send, std::string task_id);
     ~BavsOutboundRequest() = default;
-    void send() {}
-private:
+    void onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) override;
+    void onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason) override;
+    void onBeforeFinalizeUpstreamSpan(Envoy::Tracing::Span&, const Http::ResponseHeaderMap*) override {}
+    void send();
 
+private:
+    Upstream::ClusterManager& cm_;
+    std::string target_cluster_;
+    std::string error_cluster_;
+    int retries_left_;
+    std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send_;
+    std::unique_ptr<Buffer::OwnedImpl> data_to_send_;
+    std::string cm_callback_id_;
+    std::string task_id_;
+
+    void notifyFlowdOfConnectionError() {
+        std::cout << "\n\n\n\nnotifyFlowdOfConnectionError()\n\n\n\n" << std::endl;
+    }
+
+    void notifyFlowdOfUnacceptedRequest() {
+        std::cout << "\n\n\n\nnotifyFlowdOfUnacceptedRequest()\n\n\n\n" << std::endl;
+    }
 };
 
 class BavsFilter : public PassThroughFilter, public Logger::Loggable<Logger::Id::filter> {

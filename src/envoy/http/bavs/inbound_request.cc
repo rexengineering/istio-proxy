@@ -84,7 +84,15 @@ void BavsInboundRequest::onSuccess(const Http::AsyncClient::Request&,
         request_headers->setCopy(Http::LowerCaseString("x-b3-spanid"), span_id_);
         request_headers->setContentLength(content_length);
         request_headers->setContentType(content_type);
-        BavsOutboundRequest outbound_request;
+
+        std::unique_ptr<Buffer::OwnedImpl> data_to_send_to_this_upstream = std::make_unique<Buffer::OwnedImpl>();
+        data_to_send_to_this_upstream->add(data_to_send);
+
+        std::string cluster_string = "outbound|" + std::to_string(upstream->port());
+        cluster_string += "||" + upstream->full_hostname();
+        BavsOutboundRequest outbound_request(cm_, cluster_string, config_->flowdCluster(),
+                                             upstream->totalAttempts() - 1, std::move(request_headers),
+                                             std::move(data_to_send_to_this_upstream), upstream->taskId());
         outbound_request.send();
     }
     cm_.eraseRequestCallbacks(cm_callback_id_);
