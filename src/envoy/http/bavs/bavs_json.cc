@@ -78,8 +78,7 @@ std::string build_json_from_params(const Json::ObjectSharedPtr json_obj,
 
     for (auto const& param : input_params) {
         if (!json_obj->hasObject(param.value())) {
-            std::cout << param.value() << " not found!!!\n" << std::endl;
-            // TODO: Error handling
+            throw EnvoyException("Could not find param " + param.value());
             continue;
         }
 
