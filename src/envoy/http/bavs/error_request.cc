@@ -6,9 +6,10 @@ namespace Http{
 BavsErrorRequest::BavsErrorRequest(
             Upstream::ClusterManager& cm, std::string cluster,
             std::unique_ptr<Buffer::OwnedImpl> data_to_send,
-            std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send)
+            std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send,
+            std::string error_path)
             : cm_(cm), cluster_(cluster), data_to_send_(std::move(data_to_send)),
-            headers_to_send_(std::move(headers_to_send)) {
+            headers_to_send_(std::move(headers_to_send)), error_path_(error_path) {
     Random::RandomGeneratorImpl rng;
     cm_callback_id_ = rng.uuid();
     cm_.storeRequestCallbacks(cm_callback_id_, this);
@@ -16,6 +17,7 @@ BavsErrorRequest::BavsErrorRequest(
 
 void BavsErrorRequest::send() {
     // First, form the message
+    headers_to_send_->setPath(error_path_);
     std::unique_ptr<Http::RequestMessageImpl> message = std::make_unique<Http::RequestMessageImpl>(
         std::move(headers_to_send_)
     );

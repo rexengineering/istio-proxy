@@ -31,7 +31,7 @@ void BavsInboundRequest::raiseTaskError(Http::ResponseMessage& msg) {
     buf->add(error_data);
     BavsErrorRequest* error_req = new BavsErrorRequest(
                                 cm_, config_->flowdCluster(), std::move(buf),
-                                std::move(inbound_headers_));
+                                std::move(inbound_headers_), config_->flowdPath());
     error_req->send();
 
     cm_.eraseRequestCallbacks(cm_callback_id_);
@@ -47,7 +47,7 @@ void BavsInboundRequest::raiseContextOutputParsingError(Http::ResponseMessage& m
     buf->add(error_data);
     BavsErrorRequest* error_req = new BavsErrorRequest(
                                 cm_, config_->flowdCluster(), std::move(buf),
-                                std::move(inbound_headers_));
+                                std::move(inbound_headers_), config_->flowdPath());
     error_req->send();
 
     cm_.eraseRequestCallbacks(cm_callback_id_);
@@ -63,7 +63,7 @@ void BavsInboundRequest::raiseConnectionError() {
     buf->add(error_data);
     BavsErrorRequest* error_req = new BavsErrorRequest(
                                 cm_, config_->flowdCluster(), std::move(buf),
-                                std::move(inbound_headers_));
+                                std::move(inbound_headers_), config_->flowdPath());
     error_req->send();
 
     cm_.eraseRequestCallbacks(cm_callback_id_);
@@ -141,7 +141,8 @@ void BavsInboundRequest::onSuccess(const Http::AsyncClient::Request&,
         BavsOutboundRequest* outbound_request = new BavsOutboundRequest(
                                              cm_, cluster_string, config_->flowdCluster(),
                                              upstream->totalAttempts() - 1, std::move(request_headers),
-                                             std::move(data_to_send_to_this_upstream), upstream->taskId());
+                                             std::move(data_to_send_to_this_upstream), upstream->taskId(),
+                                             config_->flowdPath());
         outbound_request->send();
     }
     cm_.eraseRequestCallbacks(cm_callback_id_);

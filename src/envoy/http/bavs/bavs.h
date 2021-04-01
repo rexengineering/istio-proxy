@@ -155,7 +155,8 @@ class BavsOutboundRequest : public Http::AsyncClient::Callbacks {
 public:
     BavsOutboundRequest(Upstream::ClusterManager& cm, std::string target_cluster, std::string error_cluster,
                         int retries_left, std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send,
-                        std::unique_ptr<Buffer::OwnedImpl> data_to_send, std::string task_id);
+                        std::unique_ptr<Buffer::OwnedImpl> data_to_send, std::string task_id,
+                        std::string error_path);
     ~BavsOutboundRequest() = default;
     void onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) override;
     void onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason) override;
@@ -171,11 +172,9 @@ private:
     std::unique_ptr<Buffer::OwnedImpl> data_to_send_;
     std::string cm_callback_id_;
     std::string task_id_;
+    std::string error_path_;
 
-    void raiseConnectionError() {
-        std::cout << "\n\n\n\nnotifyFlowdOfConnectionError()\n\n\n\n" << std::endl;
-    }
-
+    void raiseConnectionError();
 };
 
 class BavsErrorRequest : public Http::AsyncClient::Callbacks {
@@ -186,7 +185,8 @@ class BavsErrorRequest : public Http::AsyncClient::Callbacks {
 public:
     BavsErrorRequest(Upstream::ClusterManager& cm, std::string cluster,
                      std::unique_ptr<Buffer::OwnedImpl> data_to_send,
-                     std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send);
+                     std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send,
+                     std::string error_path);
     ~BavsErrorRequest() = default;
     void onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) override;
     void onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason) override;
@@ -199,6 +199,7 @@ private:
     std::unique_ptr<Buffer::OwnedImpl> data_to_send_;
     std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send_;
     std::string cm_callback_id_;
+    std::string error_path_;
 };
 
 class BavsTaskErrorRequest : public Http::AsyncClient::Callbacks {

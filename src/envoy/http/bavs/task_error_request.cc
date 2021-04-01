@@ -27,7 +27,7 @@ void BavsTaskErrorRequest::send() {
     });
 
     temp_hdrs->setContentLength(data_to_send_->length());
-    temp_hdrs->setCopy(Http::LowerCaseString(ERROR_TYPE_HEADER), TASK_ERROR);
+    temp_hdrs->setPath(upstream_->path());
 
     std::unique_ptr<Http::RequestMessageImpl> message = std::make_unique<Http::RequestMessageImpl>(
         std::move(temp_hdrs)
@@ -48,7 +48,8 @@ void BavsTaskErrorRequest::send() {
 
 void BavsTaskErrorRequest::onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason) {
     BavsErrorRequest* error_req = new BavsErrorRequest(cm_, config_->flowdCluster(), 
-                                                       std::move(data_to_send_), std::move(headers_to_send_));
+                                                       std::move(data_to_send_), std::move(headers_to_send_),
+                                                       config_->flowdPath());
     error_req->send();
     cm_.eraseRequestCallbacks(cm_callback_id_);
 }
