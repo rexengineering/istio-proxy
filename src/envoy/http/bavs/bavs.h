@@ -88,6 +88,7 @@ public:
     int upstreamPort() { return upstream_port_; }
     const UpstreamConfigSharedPtr errorGateway() { return error_gateway_; }
     int inboundRetries() const { return inbound_retries_; }
+    virtual const std::vector<const UpstreamConfigSharedPtr>& errorUpstreams() { return error_upstreams_; }
 
 private:
     std::vector<const UpstreamConfigSharedPtr> forwards_;
@@ -104,6 +105,7 @@ private:
     int upstream_port_;
     UpstreamConfigSharedPtr error_gateway_;
     int inbound_retries_;
+    std::vector<const UpstreamConfigSharedPtr> error_upstreams_;
 };
 
 using BavsFilterConfigSharedPtr = std::shared_ptr<BavsFilterConfig>;

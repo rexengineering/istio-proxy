@@ -27,12 +27,43 @@ void BavsInboundRequest::raiseTaskError(Http::ResponseMessage& msg) {
                                                 *original_inbound_data_,
                                                 *inbound_headers_, msg);
 
-    std::unique_ptr<Buffer::OwnedImpl> buf = std::make_unique<Buffer::OwnedImpl>();
-    buf->add(error_data);
-    BavsErrorRequest* error_req = new BavsErrorRequest(
+    if (config_->errorUpstreams().size() > 0) {
+        for (const auto& upstream: config_->errorUpstreams()) {
+            std::unique_ptr<Buffer::OwnedImpl> buf = std::make_unique<Buffer::OwnedImpl>();
+            buf->add(error_data);
+
+            std::string cluster_string = "outbound|" + std::to_string(upstream->port());
+            cluster_string += "||" + upstream->full_hostname();
+
+            std::unique_ptr<Http::RequestHeaderMapImpl> temp_hdrs = Http::RequestHeaderMapImpl::create();
+            RequestHeaderMapImpl* temp = temp_hdrs.get();
+            inbound_headers_->iterate(
+                [&temp] (const Http::HeaderEntry& header) -> Http::HeaderMap::Iterate {
+                    std::string key_str(header.key().getStringView());
+                    std::string val_str(header.value().getStringView());
+                    temp->setCopy(Http::LowerCaseString(key_str), val_str);
+                    return Http::HeaderMap::Iterate::Continue;
+                }
+            );
+
+            temp_hdrs->setContentLength(error_data.size());
+            temp_hdrs->setContentType("application/json");
+
+            BavsOutboundRequest* error_gw_req = new BavsOutboundRequest(
+                cm_, cluster_string, config_->flowdCluster(), upstream->totalAttempts() - 1,
+                std::move(temp_hdrs), std::move(buf), upstream->taskId(),
+                config_->flowdPath()
+            );
+            error_gw_req->send();
+        }
+    } else {
+        std::unique_ptr<Buffer::OwnedImpl> buf = std::make_unique<Buffer::OwnedImpl>();
+        buf->add(error_data);
+        BavsErrorRequest* error_req = new BavsErrorRequest(
                                 cm_, config_->flowdCluster(), std::move(buf),
                                 std::move(inbound_headers_), config_->flowdPath());
-    error_req->send();
+        error_req->send();
+    }
 
     cm_.eraseRequestCallbacks(cm_callback_id_);
 }

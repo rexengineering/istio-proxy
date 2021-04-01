@@ -64,6 +64,14 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config) {
         );
         forwards_.push_back(forwardee);
     }
+    for (auto iter=proto_config.error_upstreams().begin();
+         iter != proto_config.error_upstreams().end();
+         iter++) {
+        UpstreamConfigSharedPtr forwardee(
+            std::make_shared<UpstreamConfig>(UpstreamConfig(*iter))
+        );
+        error_upstreams_.push_back(forwardee);
+    }
     wf_id_ = proto_config.wf_id();
     flowd_cluster_ = proto_config.flowd_envoy_cluster();
     flowd_path_ = proto_config.flowd_path();

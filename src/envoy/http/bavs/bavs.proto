@@ -33,4 +33,5 @@ message BAVSFilter {
     bool closure_transport = 11;
     int32 upstream_port = 12;
     int32 inbound_retries = 13;
+    repeated Upstream error_upstreams = 14;
 }
