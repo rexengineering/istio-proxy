@@ -136,6 +136,7 @@ private:
     void raiseConnectionError();
     void raiseContextOutputParsingError(Http::ResponseMessage&); 
     void raiseTaskError(Http::ResponseMessage&);
+    void doRetry();
 
     BavsFilterConfigSharedPtr config_;
     Upstream::ClusterManager& cm_;

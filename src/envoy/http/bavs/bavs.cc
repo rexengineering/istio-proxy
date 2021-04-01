@@ -30,7 +30,7 @@ std::string createErrorMessage(std::string error_code, std::string error_msg,
     elements["error_code"] = jstringify(error_code);
     elements["error_msg"] = jstringify(error_msg);
     elements["input_data_encoded"] = jstringify(Base64::encode(input_data, input_data.length()));
-    
+
     std::string dumped_hdrs = dumpHeaders(input_headers);
     elements["input_headers_encoded"] = jstringify(Base64::encode(dumped_hdrs.c_str(), dumped_hdrs.size()));
     return create_json_string(elements);

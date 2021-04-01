@@ -70,32 +70,47 @@ void BavsInboundRequest::raiseConnectionError() {
 
 }
 
+void BavsInboundRequest::doRetry() {
+    BavsInboundRequest* retry_request = new BavsInboundRequest(
+                                config_, cm_ , std::move(inbound_headers_),
+                                std::move(original_inbound_data_), 
+                                std::move(inbound_data_to_send_),
+                                retries_left_ - 1, span_id_, instance_id_,
+                                saved_headers_, inbound_data_is_json_,
+                                service_cluster_);
+    retry_request->send();
+}
+
 void BavsInboundRequest::onSuccess(const Http::AsyncClient::Request&,
-                                   Http::ResponseMessagePtr&& response) {
+                                   Http::ResponseMessagePtr&& response) {    
     Buffer::OwnedImpl data_to_send;
     std::string content_type;
 
+    std::string status_str(response->headers().getStatusValue());
+    int status = atoi(status_str.c_str());
+
+    // Note that Envoy will return a 502 or 503 and call it a "successful" request
+    // when it fails to connect to the upstream service. So we must catch it here.
+    if (status == 502 || status == 503) {
+        if (retries_left_ > 0) {
+            doRetry();
+        } else {
+            raiseConnectionError();
+        }
+        cm_.eraseRequestCallbacks(cm_callback_id_);
+        return;
+    }
+
     if (config_->isClosureTransport()) {
         // If status is bad, we notify flowd or error gateway
-        std::string status_str(response->headers().getStatusValue());
-        int status = atoi(status_str.c_str());
-
         if (status < 200 || status >= 300) {
             if (retries_left_ > 0) {
-                BavsInboundRequest* retry_request = new BavsInboundRequest(
-                                                config_, cm_ , std::move(inbound_headers_),
-                                                std::move(original_inbound_data_), 
-                                                std::move(inbound_data_to_send_),
-                                                retries_left_ - 1, span_id_, instance_id_,
-                                                saved_headers_, inbound_data_is_json_,
-                                                service_cluster_);
-                retry_request->send();
-                cm_.eraseRequestCallbacks(cm_callback_id_);
-                return;
+                doRetry();
             } else {
                 raiseTaskError(*response);
-                return;
             }
+            cm_.eraseRequestCallbacks(cm_callback_id_);
+            return;
         }
         // If we get here, then we know that the call to the inbound service (i.e. the
         // one that this Envoy Proxy is proxying) succeeded.
