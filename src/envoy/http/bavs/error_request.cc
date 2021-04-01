@@ -18,6 +18,7 @@ BavsErrorRequest::BavsErrorRequest(
 void BavsErrorRequest::send() {
     // First, form the message
     headers_to_send_->setPath(error_path_);
+    headers_to_send_->setContentLength(data_to_send_->length());
     std::unique_ptr<Http::RequestMessageImpl> message = std::make_unique<Http::RequestMessageImpl>(
         std::move(headers_to_send_)
     );
