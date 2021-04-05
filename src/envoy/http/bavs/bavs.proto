@@ -8,6 +8,7 @@ message BAVSParameter {
     string name = 1;
     string value = 2;
     string type = 3;
+    string default_value = 4;
 }
 
 message Upstream {

@@ -32,9 +32,12 @@ std::string jstringify(const std::string&);
 std::string dumpHeaders(Http::RequestOrResponseHeaderMap& hdrs);
 std::string create_json_string(const std::map<std::string, std::string>& json_elements);
 std::string get_array_as_string(const Json::Object* json);
+std::string get_array_as_string(const std::vector<Json::ObjectSharedPtr>& arr);
 std::string get_object_as_string(const Json::Object* json);
-std::string build_json_from_params(const Json::ObjectSharedPtr, const std::vector<bavs::BAVSParameter>);
+std::string build_json_from_params(const Json::ObjectSharedPtr, const std::vector<bavs::BAVSParameter>&);
 std::string merge_jsons(const Json::ObjectSharedPtr original, const Json::ObjectSharedPtr updater);
+std::string get_array_or_obj_str_from_json(const Json::ObjectSharedPtr json_obj,
+        const std::string& key);
 
 std::string createErrorMessage(std::string error_code, std::string error_msg,
                                Buffer::OwnedImpl& input_data, Http::RequestHeaderMap& input_headers,
@@ -136,6 +139,7 @@ private:
     std::string mergeResponseAndContext(Http::ResponseMessagePtr& response);
 
     void raiseConnectionError();
+    void raiseContextOutputParsingError(Http::ResponseMessage& msg, std::string error_msg);
     void raiseContextOutputParsingError(Http::ResponseMessage&); 
     void raiseTaskError(Http::ResponseMessage&);
     void doRetry();

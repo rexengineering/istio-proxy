@@ -106,6 +106,8 @@ void BavsFilter::raiseContextInputError(std::string msg) {
 
 void BavsFilter::sendMessage() {
     std::string temp = spanid_;
+
+    // tell the original client who sent a request to this Envoy that we got you buddy
     decoder_callbacks_->sendLocalReply(
         Envoy::Http::Code::Accepted,
         "For my ally is the Force, and a powerful ally it is.",
@@ -214,7 +216,9 @@ FilterDataStatus BavsFilter::decodeData(Buffer::Instance& data, bool end_stream)
                 inbound_data_is_json_ = true;
             }
         } catch(const EnvoyException& exn) {
-            raiseContextInputError("Failed to build inbound request from context parameters.");
+            std::string error_msg = "Failed to build inbound request from context parameters: ";
+            error_msg += exn.what();
+            raiseContextInputError(error_msg);
             return FilterDataStatus::StopIterationAndBuffer;
         } // try/catch()
 

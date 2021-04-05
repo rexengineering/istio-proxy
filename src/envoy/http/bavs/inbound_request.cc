@@ -70,7 +70,11 @@ void BavsInboundRequest::raiseTaskError(Http::ResponseMessage& msg) {
 
 void BavsInboundRequest::raiseContextOutputParsingError(Http::ResponseMessage& msg) {
     std::string error_message = "Failed parsing service response for output context params.";
-    std::string error_data = createErrorMessage(CONTEXT_OUTPUT_PARSING_ERROR, error_message,
+    raiseContextOutputParsingError(msg, error_message);
+}
+
+void BavsInboundRequest::raiseContextOutputParsingError(Http::ResponseMessage& msg, std::string error_msg) {
+    std::string error_data = createErrorMessage(CONTEXT_OUTPUT_PARSING_ERROR, error_msg,
                                                 *original_inbound_data_,
                                                 *inbound_headers_, msg);
 
@@ -151,7 +155,7 @@ void BavsInboundRequest::onSuccess(const Http::AsyncClient::Request&,
             data_to_send.add(mergeResponseAndContext(response));
             content_type = "application/json";
         } catch (const EnvoyException& exn) {
-            raiseContextOutputParsingError(*response);
+            raiseContextOutputParsingError(*response, exn.what());
             return;
         }
     } else {
@@ -267,7 +271,7 @@ std::string BavsInboundRequest::mergeResponseAndContext(Http::ResponseMessagePtr
      * TODO: In the future, expand this section to support non-json messages, for example,
      * passing a small image or a byte stream as a context variable.
      */
-    if (!response_json->isObject()) {
+    if (!response_json->isObject() && !response_json->isArray()) {
         if (config_->outputParams().size() > 0) {
             // TODO: in this line, we would parse the non-json content-type stuff.
             throw EnvoyException(
@@ -277,6 +281,17 @@ std::string BavsInboundRequest::mergeResponseAndContext(Http::ResponseMessagePtr
             throw EnvoyException("Neither input nor output is json.");
         }
         return original_inbound_data_->toString();
+    }
+
+    if (!response_json->isObject()) {
+        if (config_->outputParams().size() > 1) {
+            throw EnvoyException("got a non-object output and more than one param.");
+        }
+        if (config_->outputParams().size() == 1) {
+            if (config_->outputParams()[0].value() != ".") {
+                throw EnvoyException("Tried to index into a non-object. Yikes!");
+            }
+        }
     }
 
     std::string updater_string = build_json_from_params(response_json, config_->outputParams());
