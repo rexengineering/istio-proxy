@@ -15,7 +15,14 @@ envoy_proto_library(
 
 envoy_cc_library(
     name = "bavs_lib",
-    srcs = ["bavs.cc"],
+    srcs = [
+        "bavs.cc",
+        "bavs_json.cc",
+        "inbound_request.cc",
+        "outbound_request.cc",
+        "error_request.cc",
+        "task_error_request.cc"
+    ],
     hdrs = ["bavs.h"],
     repository = "@envoy",
     deps = [

@@ -4,6 +4,13 @@ package bavs;
 
 import "validate/validate.proto";
 
+message BAVSParameter {
+    string name = 1;
+    string value = 2;
+    string type = 3;
+    string default_value = 4;
+}
+
 message Upstream {
     string full_hostname = 1 [(validate.rules).string.min_bytes = 1];
     int32 port = 2;
@@ -22,4 +29,10 @@ message BAVSFilter {
     string traffic_shadow_cluster = 6;
     string traffic_shadow_path = 7;
     repeated string headers_to_forward = 8;
+    repeated BAVSParameter input_params = 9;
+    repeated BAVSParameter output_params = 10;
+    bool closure_transport = 11;
+    int32 upstream_port = 12;
+    int32 inbound_retries = 13;
+    repeated Upstream error_upstreams = 14;
 }
