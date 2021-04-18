@@ -124,7 +124,7 @@ std::string build_json_from_params(const Json::ObjectSharedPtr json_obj,
 
         const auto& param = input_params[0];
         if (!json_obj->hasObject(param.value())) {
-            if (param.default_value() == "") {
+            if (!param.has_default_value()) {
                 throw EnvoyException("Could not find param " + param.value());
             } else {
                 return param.default_value();

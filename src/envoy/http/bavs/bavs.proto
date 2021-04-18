@@ -9,6 +9,7 @@ message BAVSParameter {
     string value = 2;
     string type = 3;
     string default_value = 4;
+    bool has_default_value = 5;
 }
 
 message Upstream {
@@ -18,6 +19,7 @@ message Upstream {
     string method = 4;
     int32 total_attempts = 5;
     string task_id = 6;
+    int32 upstream_port = 7;
 }
 
 message BAVSFilter {
