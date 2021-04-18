@@ -19,7 +19,6 @@ message Upstream {
     string method = 4;
     int32 total_attempts = 5;
     string task_id = 6;
-    int32 upstream_port = 7;
 }
 
 message BAVSFilter {
