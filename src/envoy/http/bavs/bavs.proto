@@ -9,6 +9,7 @@ message BAVSParameter {
     string value = 2;
     string type = 3;
     string default_value = 4;
+    bool has_default_value = 5;
 }
 
 message Upstream {
