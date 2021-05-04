@@ -100,7 +100,8 @@ void BavsFilter::raiseContextInputError(std::string msg) {
     buf->add(error_data);
     BavsErrorRequest* error_req = new BavsErrorRequest(
                                 cluster_manager_, config_->flowdCluster(), std::move(buf),
-                                std::move(inbound_headers_), config_->flowdPath());
+                                std::move(inbound_headers_), config_->flowdPath(),
+                                config_->trafficShadowCluster(), config_->trafficShadowPath());
     error_req->send();
 }
 

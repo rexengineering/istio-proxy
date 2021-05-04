@@ -28,6 +28,14 @@ namespace Http {
 #define CONTEXT_OUTPUT_PARSING_ERROR "FAILED_CONTEXT_OUTPUT_PARSING"
 #define TASK_ERROR "FAILED_TASK"
 
+// For shadowing traffic.
+#define REQ_TYPE_HEADER "x-rexflow-request-type"
+#define REQ_TYPE_INBOUND "INBOUND"
+#define REQ_TYPE_OUTBOUND "OUTBOUND"
+#define REQ_TYPE_ERROR "ERROR"
+#define REQ_TYPE_TASK_ERROR "TASK_ERROR"
+#define ORIGINAL_REQ_FAILED_HDR "x-rexflow-original-request-failed"
+
 std::string jstringify(const std::string&);
 std::string dumpHeaders(Http::RequestOrResponseHeaderMap& hdrs);
 std::string create_json_string(const std::map<std::string, std::string>& json_elements);
@@ -163,7 +171,7 @@ public:
     BavsOutboundRequest(Upstream::ClusterManager& cm, std::string target_cluster, std::string error_cluster,
                         int retries_left, std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send,
                         std::unique_ptr<Buffer::OwnedImpl> data_to_send, std::string task_id,
-                        std::string error_path);
+                        std::string error_path, std::string shadow_cluster, std::string shadow_path);
     ~BavsOutboundRequest() = default;
     void onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) override;
     void onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason) override;
@@ -180,6 +188,8 @@ private:
     std::string cm_callback_id_;
     std::string task_id_;
     std::string error_path_;
+    std::string shadow_cluster_;
+    std::string shadow_path_;
 
     void raiseConnectionError();
 };
@@ -193,7 +203,8 @@ public:
     BavsErrorRequest(Upstream::ClusterManager& cm, std::string cluster,
                      std::unique_ptr<Buffer::OwnedImpl> data_to_send,
                      std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send,
-                     std::string error_path);
+                     std::string error_path, std::string shadow_cluster,
+                     std::string shadow_path);
     ~BavsErrorRequest() = default;
     void onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) override;
     void onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason) override;
@@ -207,6 +218,37 @@ private:
     std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send_;
     std::string cm_callback_id_;
     std::string error_path_;
+    std::string shadow_cluster_;
+    std::string shadow_path_;
+};
+
+class BavsTrafficShadowRequest : public Http::AsyncClient::Callbacks {
+/**
+ * Simply shadows the request to a pre-determined endpoint in order to
+ * enable post-processing on everything that happens in the workflow.
+ * 
+ * This is intentionally a fire-and-forget request in order to save
+ * resources.
+ */
+public:
+    BavsTrafficShadowRequest(Upstream::ClusterManager& cm, std::string cluster,
+                     Buffer::Instance& data_to_send,
+                     Http::RequestHeaderMapImpl& headers_to_send,
+                     std::string path, std::string request_type);
+    ~BavsTrafficShadowRequest() = default;
+    void onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) override;
+    void onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason) override;
+    void onBeforeFinalizeUpstreamSpan(Envoy::Tracing::Span&, const Http::ResponseHeaderMap*) override {}
+    void send();
+
+private:
+    Upstream::ClusterManager& cm_;
+    std::string cluster_;
+    std::unique_ptr<Buffer::OwnedImpl> data_to_send_;
+    std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send_;
+    std::string cm_callback_id_;
+    std::string path_;
+    std::string request_type_;
 };
 
 class BavsTaskErrorRequest : public Http::AsyncClient::Callbacks {

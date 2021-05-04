@@ -52,7 +52,7 @@ void BavsInboundRequest::raiseTaskError(Http::ResponseMessage& msg) {
             BavsOutboundRequest* error_gw_req = new BavsOutboundRequest(
                 cm_, cluster_string, config_->flowdCluster(), upstream->totalAttempts() - 1,
                 std::move(temp_hdrs), std::move(buf), upstream->taskId(),
-                config_->flowdPath()
+                config_->flowdPath(), config_->trafficShadowCluster(), config_->trafficShadowPath()
             );
             error_gw_req->send();
         }
@@ -61,7 +61,8 @@ void BavsInboundRequest::raiseTaskError(Http::ResponseMessage& msg) {
         buf->add(error_data);
         BavsErrorRequest* error_req = new BavsErrorRequest(
                                 cm_, config_->flowdCluster(), std::move(buf),
-                                std::move(inbound_headers_), config_->flowdPath());
+                                std::move(inbound_headers_), config_->flowdPath(),
+                                config_->trafficShadowCluster(), config_->trafficShadowPath());
         error_req->send();
     }
 
@@ -82,7 +83,8 @@ void BavsInboundRequest::raiseContextOutputParsingError(Http::ResponseMessage& m
     buf->add(error_data);
     BavsErrorRequest* error_req = new BavsErrorRequest(
                                 cm_, config_->flowdCluster(), std::move(buf),
-                                std::move(inbound_headers_), config_->flowdPath());
+                                std::move(inbound_headers_), config_->flowdPath(),
+                                config_->trafficShadowCluster(), config_->trafficShadowPath());
     error_req->send();
 
     cm_.eraseRequestCallbacks(cm_callback_id_);
@@ -98,7 +100,8 @@ void BavsInboundRequest::raiseConnectionError() {
     buf->add(error_data);
     BavsErrorRequest* error_req = new BavsErrorRequest(
                                 cm_, config_->flowdCluster(), std::move(buf),
-                                std::move(inbound_headers_), config_->flowdPath());
+                                std::move(inbound_headers_), config_->flowdPath(),
+                                config_->trafficShadowCluster(), config_->trafficShadowPath());
     error_req->send();
 
     cm_.eraseRequestCallbacks(cm_callback_id_);
@@ -192,7 +195,8 @@ void BavsInboundRequest::onSuccess(const Http::AsyncClient::Request&,
                                              cm_, cluster_string, config_->flowdCluster(),
                                              upstream->totalAttempts() - 1, std::move(request_headers),
                                              std::move(data_to_send_to_this_upstream), upstream->taskId(),
-                                             config_->flowdPath());
+                                             config_->flowdPath(), config_->trafficShadowCluster(),
+                                             config_->trafficShadowPath());
         outbound_request->send();
     }
     cm_.eraseRequestCallbacks(cm_callback_id_);
@@ -238,6 +242,16 @@ void BavsInboundRequest::send() {
         return;
     }
     client->send(std::move(message), *this, Http::AsyncClient::RequestOptions());
+
+    // Lastly, we shadow the inbound request.
+    if (config_->trafficShadowCluster() != "") {
+        BavsTrafficShadowRequest *shadow_req = new BavsTrafficShadowRequest(
+            cm_, config_->trafficShadowCluster(), *inbound_data_to_send_,
+            *inbound_headers_, config_->trafficShadowPath(),
+            REQ_TYPE_INBOUND
+        );
+        shadow_req->send();
+    }
 }
 
 Http::RequestHeaderMapPtr BavsInboundRequest::createOutboundHeaders(

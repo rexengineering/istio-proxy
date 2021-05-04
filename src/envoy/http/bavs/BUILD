@@ -21,7 +21,8 @@ envoy_cc_library(
         "inbound_request.cc",
         "outbound_request.cc",
         "error_request.cc",
-        "task_error_request.cc"
+        "task_error_request.cc",
+        "traffic_shadow_request.cc"
     ],
     hdrs = ["bavs.h"],
     repository = "@envoy",

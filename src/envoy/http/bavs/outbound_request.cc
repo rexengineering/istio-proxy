@@ -7,12 +7,14 @@ BavsOutboundRequest::BavsOutboundRequest(Upstream::ClusterManager& cm, std::stri
                                          std::string error_cluster, int retries_left,
                                          std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send,
                                          std::unique_ptr<Buffer::OwnedImpl> data_to_send,
-                                         std::string task_id, std::string error_path) :
+                                         std::string task_id, std::string error_path,
+                                         std::string shadow_cluster, std::string shadow_path) :
                                          cm_(cm), target_cluster_(target_cluster),
                                          error_cluster_(error_cluster), retries_left_(retries_left),
                                          headers_to_send_(std::move(headers_to_send)),
                                          data_to_send_(std::move(data_to_send)), task_id_(task_id),
-                                         error_path_(error_path) {
+                                         error_path_(error_path), shadow_cluster_(shadow_cluster),
+                                         shadow_path_(shadow_path) {
     Random::RandomGeneratorImpl rng;
     cm_callback_id_ = rng.uuid();
     cm_.storeRequestCallbacks(cm_callback_id_, this);
@@ -29,7 +31,8 @@ void BavsOutboundRequest::raiseConnectionError() {
 
     BavsErrorRequest* error_req = new BavsErrorRequest(
                                 cm_, error_cluster_, std::move(buf),
-                                std::move(headers_to_send_), error_path_);
+                                std::move(headers_to_send_), error_path_,
+                                shadow_cluster_, shadow_path_);
     error_req->send();
 
     cm_.eraseRequestCallbacks(cm_callback_id_);
@@ -58,6 +61,14 @@ void BavsOutboundRequest::send() {
         return;
     }
     client->send(std::move(message), *this, Http::AsyncClient::RequestOptions());
+
+    if (shadow_cluster_ != "") {
+        BavsTrafficShadowRequest *shadow_req = new BavsTrafficShadowRequest(
+            cm_, shadow_cluster_, *data_to_send_,
+            *headers_to_send_, shadow_path_, REQ_TYPE_OUTBOUND
+        );
+        shadow_req->send();
+    }
 }
 
 void BavsOutboundRequest::onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) {
@@ -73,7 +84,7 @@ void BavsOutboundRequest::onFailure(const Http::AsyncClient::Request&, Http::Asy
     if (retries_left_ > 0) {
         BavsOutboundRequest *retry_request = new BavsOutboundRequest(
             cm_, target_cluster_, error_cluster_, retries_left_ - 1, std::move(headers_to_send_),
-            std::move(data_to_send_), task_id_, error_path_);
+            std::move(data_to_send_), task_id_, error_path_, shadow_cluster_, shadow_path_);
         retry_request->send();
     } else {
         raiseConnectionError();

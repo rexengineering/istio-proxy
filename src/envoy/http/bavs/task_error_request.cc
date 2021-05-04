@@ -46,12 +46,32 @@ void BavsTaskErrorRequest::send() {
     if (client) {
         client->send(std::move(message), *this, Http::AsyncClient::RequestOptions());
     }
+
+    // Lastly, we shadow the task error request.
+    if (config_->trafficShadowCluster() != "") {
+        std::cout << "task error request: about to shadow" << std::endl;
+        std::unique_ptr<Http::RequestHeaderMapImpl> shadow_hdrs = Http::RequestHeaderMapImpl::create();
+        RequestHeaderMap* shadow_temp = &(*shadow_hdrs);
+        headers_to_send_->iterate([shadow_temp] (const HeaderEntry& header) -> HeaderMap::Iterate {
+            std::string hdr_key(header.key().getStringView());
+            shadow_temp->setCopy(Http::LowerCaseString(hdr_key), header.value().getStringView());
+            return HeaderMap::Iterate::Continue;
+        });
+        BavsTrafficShadowRequest *shadow_req = new BavsTrafficShadowRequest(
+            cm_, config_->trafficShadowCluster(), *data_to_send_,
+            *shadow_hdrs, config_->trafficShadowPath(),
+            REQ_TYPE_TASK_ERROR
+        );
+        shadow_req->send();
+        std::cout << "task error request: done shadowing" << std::endl;
+    }
 }
 
 void BavsTaskErrorRequest::onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason) {
     BavsErrorRequest* error_req = new BavsErrorRequest(cm_, config_->flowdCluster(), 
                                                        std::move(data_to_send_), std::move(headers_to_send_),
-                                                       config_->flowdPath());
+                                                       config_->flowdPath(), config_->trafficShadowCluster(),
+                                                       config_->trafficShadowPath());
     error_req->send();
     cm_.eraseRequestCallbacks(cm_callback_id_);
 }
