@@ -1,126 +1,62 @@
 #include "bavs.h"
+#include <algorithm>
 
 namespace Envoy {
 namespace Http {
 
-BavsInboundRequest::BavsInboundRequest(BavsFilterConfigSharedPtr config, Upstream::ClusterManager& cm,
-                       std::unique_ptr<Http::RequestHeaderMapImpl> inbound_headers,
-                       std::unique_ptr<Buffer::OwnedImpl> original_inbound_data,
-                       std::unique_ptr<Buffer::OwnedImpl> inbound_data_to_send,
-                       int retries_left, std::string span_id, std::string instance_id,
-                       std::map<std::string, std::string> saved_headers,
-                       bool inbound_data_is_json, std::string service_cluster) :
-                       config_(config), cm_(cm), inbound_headers_(std::move(inbound_headers)),
-                       original_inbound_data_(std::move(original_inbound_data)),
-                       inbound_data_to_send_(std::move(inbound_data_to_send)),
-                       retries_left_(retries_left), span_id_(span_id), instance_id_(instance_id),
-                       saved_headers_(saved_headers), inbound_data_is_json_(inbound_data_is_json),
-                       service_cluster_(service_cluster) {
-    Random::RandomGeneratorImpl rng;
-    cm_callback_id_ = rng.uuid();
-    cm_.storeRequestCallbacks(cm_callback_id_, this);
-}
+std::unique_ptr<Http::RequestMessage> BavsInboundRequest::getMessage() {
+    // Step 1: Get the original data sent to Envoy from the outside world.
+    std::unique_ptr<RequestHeaderMap> original_headers = copyHeaders();
+    const Buffer::OwnedImpl* original_data = getData();
 
-void BavsInboundRequest::raiseTaskError(Http::ResponseMessage& msg) {
-    std::string error_message = "Service task failed.";
-    std::string error_data = createErrorMessage(TASK_ERROR, error_message,
-                                                *original_inbound_data_,
-                                                *inbound_headers_, msg);
+    // Step 2: Create a message to send
+    RequestMessagePtr message = std::make_unique<RequestMessageImpl>(std::move(original_headers));
 
-    if (config_->errorUpstreams().size() > 0) {
-        for (const auto& upstream: config_->errorUpstreams()) {
-            std::unique_ptr<Buffer::OwnedImpl> buf = std::make_unique<Buffer::OwnedImpl>();
-            buf->add(error_data);
-
-            std::string cluster_string = "outbound|" + std::to_string(upstream->port());
-            cluster_string += "||" + upstream->full_hostname();
-
-            std::unique_ptr<Http::RequestHeaderMapImpl> temp_hdrs = Http::RequestHeaderMapImpl::create();
-            RequestHeaderMapImpl* temp = temp_hdrs.get();
-            inbound_headers_->iterate(
-                [&temp] (const Http::HeaderEntry& header) -> Http::HeaderMap::Iterate {
-                    std::string key_str(header.key().getStringView());
-                    std::string val_str(header.value().getStringView());
-                    temp->setCopy(Http::LowerCaseString(key_str), val_str);
-                    return Http::HeaderMap::Iterate::Continue;
-                }
-            );
-
-            temp_hdrs->setContentLength(error_data.size());
-            temp_hdrs->setContentType("application/json");
-
-            BavsOutboundRequest* error_gw_req = new BavsOutboundRequest(
-                cm_, cluster_string, config_->flowdCluster(), upstream->totalAttempts() - 1,
-                std::move(temp_hdrs), std::move(buf), upstream->taskId(),
-                config_->flowdPath(), config_->trafficShadowCluster(), config_->trafficShadowPath()
-            );
-            error_gw_req->send();
+    // Step 3: If context parsing is enabled, do it.
+    if (config_->isClosureTransport()) {
+        if (message->headers().getContentTypeValue() != "application/json") {
+            std::string error_msg = "Expected to get JSON input because was expecting a context.";
+            createAndSendError(CONTEXT_INPUT_ERROR, error_msg);
+            return nullptr;
         }
-    } else {
-        std::unique_ptr<Buffer::OwnedImpl> buf = std::make_unique<Buffer::OwnedImpl>();
-        buf->add(error_data);
-        BavsErrorRequest* error_req = new BavsErrorRequest(
-                                cm_, config_->flowdCluster(), std::move(buf),
-                                std::move(inbound_headers_), config_->flowdPath(),
-                                config_->trafficShadowCluster(), config_->trafficShadowPath());
-        error_req->send();
+
+        std::string raw_input(original_data->toString());
+
+        std::string new_input = "{}";
+        try {
+            Json::ObjectSharedPtr json = Json::Factory::loadFromString(raw_input);
+            if (!json->isObject()) {
+                // This is possible if the data is a list (eg. '[]'). Shouldn't happen except
+                // if we do a `flowctl run` with no data.
+                if (!config_->inputParams().empty()) {
+                    throw EnvoyException("Incoming data not an object, yet we needed to unmarshal.");
+                }
+                message->body().add(*original_data);
+            } else {
+                new_input = BavsUtil::build_json_from_params(json, config_->inputParams());
+                message->body().add(new_input);
+                message->headers().setContentLength(new_input.size());
+                message->headers().setContentType("application/json");
+            }
+        } catch(const EnvoyException& exn) {
+            std::string error_msg = "Failed to build inbound request from context parameters: ";
+            error_msg += exn.what();
+            createAndSendError(CONTEXT_INPUT_ERROR, error_msg);
+            return nullptr;
+        }
+    } /* if (config_->isClosureTransport()) */ else { 
+        message->body().add(*original_data);
     }
-
-    cm_.eraseRequestCallbacks(cm_callback_id_);
+    return message;
 }
 
-void BavsInboundRequest::raiseContextOutputParsingError(Http::ResponseMessage& msg) {
-    std::string error_message = "Failed parsing service response for output context params.";
-    raiseContextOutputParsingError(msg, error_message);
-}
 
-void BavsInboundRequest::raiseContextOutputParsingError(Http::ResponseMessage& msg, std::string error_msg) {
-    std::string error_data = createErrorMessage(CONTEXT_OUTPUT_PARSING_ERROR, error_msg,
-                                                *original_inbound_data_,
-                                                *inbound_headers_, msg);
+void BavsInboundRequest::processSuccess(const AsyncClient::Request&, ResponseMessage* response) {
+    // We do processing of the context output in the `InboundRequest` class
+    // so that we can easily raise an error showing both input and output.
+    // If we were to do this processing in `OutboundRequest`, then we would
+    // not be able to send the original input along as journaling to flowd.
 
-    std::unique_ptr<Buffer::OwnedImpl> buf = std::make_unique<Buffer::OwnedImpl>();
-    buf->add(error_data);
-    BavsErrorRequest* error_req = new BavsErrorRequest(
-                                cm_, config_->flowdCluster(), std::move(buf),
-                                std::move(inbound_headers_), config_->flowdPath(),
-                                config_->trafficShadowCluster(), config_->trafficShadowPath());
-    error_req->send();
-
-    cm_.eraseRequestCallbacks(cm_callback_id_);
-}
-
-void BavsInboundRequest::raiseConnectionError() {
-    std::string error_message = "Failed connecting to service task.";
-    std::string error_data = createErrorMessage(CONNECTION_ERROR, error_message,
-                                                *original_inbound_data_,
-                                                *inbound_headers_);
-
-    std::unique_ptr<Buffer::OwnedImpl> buf = std::make_unique<Buffer::OwnedImpl>();
-    buf->add(error_data);
-    BavsErrorRequest* error_req = new BavsErrorRequest(
-                                cm_, config_->flowdCluster(), std::move(buf),
-                                std::move(inbound_headers_), config_->flowdPath(),
-                                config_->trafficShadowCluster(), config_->trafficShadowPath());
-    error_req->send();
-
-    cm_.eraseRequestCallbacks(cm_callback_id_);
-
-}
-
-void BavsInboundRequest::doRetry() {
-    BavsInboundRequest* retry_request = new BavsInboundRequest(
-                                config_, cm_ , std::move(inbound_headers_),
-                                std::move(original_inbound_data_), 
-                                std::move(inbound_data_to_send_),
-                                retries_left_ - 1, span_id_, instance_id_,
-                                saved_headers_, inbound_data_is_json_,
-                                service_cluster_);
-    retry_request->send();
-}
-
-void BavsInboundRequest::onSuccess(const Http::AsyncClient::Request&,
-                                   Http::ResponseMessagePtr&& response) {    
     Buffer::OwnedImpl data_to_send;
     std::string content_type;
 
@@ -130,12 +66,7 @@ void BavsInboundRequest::onSuccess(const Http::AsyncClient::Request&,
     // Note that Envoy will return a 502 or 503 and call it a "successful" request
     // when it fails to connect to the upstream service. So we must catch it here.
     if (status == 502 || status == 503) {
-        if (retries_left_ > 0) {
-            doRetry();
-        } else {
-            raiseConnectionError();
-        }
-        cm_.eraseRequestCallbacks(cm_callback_id_);
+        handleConnectionError();
         return;
     }
 
@@ -147,7 +78,6 @@ void BavsInboundRequest::onSuccess(const Http::AsyncClient::Request&,
             } else {
                 raiseTaskError(*response);
             }
-            cm_.eraseRequestCallbacks(cm_callback_id_);
             return;
         }
         // If we get here, then we know that the call to the inbound service (i.e. the
@@ -158,7 +88,17 @@ void BavsInboundRequest::onSuccess(const Http::AsyncClient::Request&,
             data_to_send.add(mergeResponseAndContext(response));
             content_type = "application/json";
         } catch (const EnvoyException& exn) {
-            raiseContextOutputParsingError(*response, exn.what());
+            std::string error_msg = "Failed parsing service output: ";
+            error_msg += std::string(exn.what());
+            // NOTE: The error_msg can sometimes contain the '\n' character.
+            // This throws off the JSON correctness. For now, we just eliminate the '\n'
+            // char. TODO: in the future, write an actual json writer which can properly
+            // stringify the strings.
+            // Another reason for this TODO: There could be other invalid things that we
+            // thave to deal with.
+            error_msg.erase(std::remove(error_msg.begin(), error_msg.end(), '\n'), error_msg.end());
+
+            createAndSendError(CONTEXT_OUTPUT_ERROR, error_msg, *response);
             return;
         }
     } else {
@@ -166,119 +106,116 @@ void BavsInboundRequest::onSuccess(const Http::AsyncClient::Request&,
         content_type = response->headers().getContentTypeValue();
     }
 
-    size_t content_length = data_to_send.length();
-    for (const UpstreamConfigSharedPtr& upstream : config_->forwards()) {
-        std::unique_ptr<Http::RequestHeaderMapImpl> request_headers = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
-            {
-                {Http::Headers::get().Method, upstream->method()},
-                {Http::Headers::get().Host, upstream->full_hostname() + ":" + std::to_string(upstream->port())},
-                {Http::Headers::get().Path, upstream->path()},
-                {Http::LowerCaseString("x-rexflow-wf-id"), config_->wfIdValue()},
-                {Http::LowerCaseString("x-rexflow-task-id"), upstream->taskId()},
-                {Http::LowerCaseString("x-flow-id"), instance_id_}
-            }
-        );
-        for (const auto& saved_header : saved_headers_) {
-            request_headers->setCopy(Http::LowerCaseString(saved_header.first), saved_header.second);
-        }
-        // Inject tracing context
-        request_headers->setCopy(Http::LowerCaseString("x-b3-spanid"), span_id_);
-        request_headers->setContentLength(content_length);
-        request_headers->setContentType(content_type);
+    for (const UpstreamConfigSharedPtr& upstream : config_->forwardUpstreams()) {
+        std::unique_ptr<Buffer::OwnedImpl> request_data = std::make_unique<Buffer::OwnedImpl>();
+        request_data->add(data_to_send);
+        RequestHeaderMapPtr request_headers = copyHeaders();
 
-        std::unique_ptr<Buffer::OwnedImpl> data_to_send_to_this_upstream = std::make_unique<Buffer::OwnedImpl>();
-        data_to_send_to_this_upstream->add(data_to_send);
-
-        std::string cluster_string = "outbound|" + std::to_string(upstream->port());
-        cluster_string += "||" + upstream->full_hostname();
         BavsOutboundRequest* outbound_request = new BavsOutboundRequest(
-                                             cm_, cluster_string, config_->flowdCluster(),
-                                             upstream->totalAttempts() - 1, std::move(request_headers),
-                                             std::move(data_to_send_to_this_upstream), upstream->taskId(),
-                                             config_->flowdPath(), config_->trafficShadowCluster(),
-                                             config_->trafficShadowPath());
+            config_, std::move(request_data), std::move(request_headers),
+            saved_headers_, upstream->totalAttempts() - 1,
+            upstream, REQ_TYPE_OUTBOUND
+        );
         outbound_request->send();
     }
-    cm_.eraseRequestCallbacks(cm_callback_id_);
 }
 
-void BavsInboundRequest::onFailure(const Http::AsyncClient::Request&,
-                                   Http::AsyncClient::FailureReason) {
-    if (retries_left_ > 0) {
-        BavsInboundRequest* retry_request = new BavsInboundRequest(
-                                         config_, cm_ , std::move(inbound_headers_),
-                                         std::move(original_inbound_data_),
-                                         std::move(inbound_data_to_send_),
-                                         retries_left_ - 1, span_id_, instance_id_,
-                                         saved_headers_, inbound_data_is_json_,
-                                         service_cluster_);
-        retry_request->send();
-    } else {
-        raiseConnectionError();
-    }
-    cm_.eraseRequestCallbacks(cm_callback_id_);
+void BavsInboundRequest::processFailure(const Http::AsyncClient::Request&,
+                                        Http::AsyncClient::FailureReason) {
+    handleConnectionError();
 }
 
-void BavsInboundRequest::send() {
-    // First, form the message
-    std::unique_ptr<Http::RequestMessageImpl> message = std::make_unique<Http::RequestMessageImpl>();
 
-    RequestHeaderMap* temp = &message->headers();
-    inbound_headers_->iterate([temp] (const HeaderEntry& header) -> HeaderMap::Iterate {
-        std::string hdr_key(header.key().getStringView());
-        temp->setCopy(Http::LowerCaseString(hdr_key), header.value().getStringView());
-        return HeaderMap::Iterate::Continue; 
-    });
+void BavsInboundRequest::raiseTaskError(Http::ResponseMessage& msg) {
+    std::string error_message = "Service task failed.";
+    std::string error_data = BavsUtil::createErrorMessage(TASK_ERROR, error_message,
+                                                *getData(),
+                                                *getHeaders(), msg);
 
-    message->body().add(*inbound_data_to_send_);
+    // If there's 1 or more error gateways, go through those. Else, notify flowd.
+    if (config_->errorGatewayUpstreams().size() > 0) {
+        for (const auto& upstream: config_->errorGatewayUpstreams()) {
+            std::unique_ptr<Buffer::OwnedImpl> buf = std::make_unique<Buffer::OwnedImpl>();
+            buf->add(error_data);
 
-    // Second, send the message
-    Http::AsyncClient* client = NULL;
-    try {
-        client = &(cm_.httpAsyncClientForCluster(service_cluster_));
-    } catch(const EnvoyException&) {
-        // The cluster wasn't found, so we need to begin error processing.
-        raiseConnectionError();
-        return;
-    }
-    client->send(std::move(message), *this, Http::AsyncClient::RequestOptions());
+            std::unique_ptr<RequestHeaderMap> headers = copyHeaders();
 
-    // Lastly, we shadow the inbound request.
-    if (config_->trafficShadowCluster() != "") {
-        BavsTrafficShadowRequest *shadow_req = new BavsTrafficShadowRequest(
-            cm_, config_->trafficShadowCluster(), *inbound_data_to_send_,
-            *inbound_headers_, config_->trafficShadowPath(),
-            REQ_TYPE_INBOUND
-        );
-        shadow_req->send();
-    }
-}
-
-Http::RequestHeaderMapPtr BavsInboundRequest::createOutboundHeaders(
-            UpstreamConfigSharedPtr upstream_ptr) {
-    const UpstreamConfig& upstream(*upstream_ptr);
-
-    // Create headers to send over to the next place.
-    std::unique_ptr<RequestHeaderMapImpl> hdrs = Http::createHeaderMap<Http::RequestHeaderMapImpl>(
-        {
-            {Http::Headers::get().Method, upstream.method()},
-            {Http::Headers::get().Host, upstream.full_hostname() + ":" + std::to_string(upstream.port())},
-            {Http::Headers::get().Path, upstream.path()},
-            {Http::LowerCaseString("x-rexflow-wf-id"), config_->wfIdValue()},
-            {Http::LowerCaseString("x-rexflow-task-id"), upstream.taskId()},
-            {Http::LowerCaseString("x-flow-id"), instance_id_}
+            BavsOutboundRequest* error_req = new BavsOutboundRequest(
+                config_, std::move(buf), std::move(headers),
+                saved_headers_, upstream->totalAttempts() - 1, upstream,
+                REQ_TYPE_ERROR
+            );
+            error_req->send();
         }
-    );
-
-    for (const auto& saved_header : saved_headers_) {
-        hdrs->setCopy(Http::LowerCaseString(saved_header.first), saved_header.second);
+    } else {
+        std::unique_ptr<Buffer::OwnedImpl> buf = std::make_unique<Buffer::OwnedImpl>();
+        buf->add(error_data);
+        std::unique_ptr<RequestHeaderMap> temp_headers = copyHeaders();
+        BavsErrorRequest* error_req = new BavsErrorRequest(
+                                config_, std::move(buf), std::move(temp_headers),
+                                saved_headers_,
+                                config_->flowdUpstream()->totalAttempts() - 1,
+                                config_->flowdUpstream(), REQ_TYPE_ERROR);
+        error_req->send();
     }
-    // Inject tracing context
-    hdrs->setCopy(Http::LowerCaseString("x-b3-spanid"), span_id_);
-    return std::move(hdrs);
 }
 
-std::string BavsInboundRequest::mergeResponseAndContext(Http::ResponseMessagePtr& response) {
+void BavsInboundRequest::createAndSendError(
+    std::string error_code, std::string error_msg, ResponseMessage& response)
+{
+    std::string error_data = BavsUtil::createErrorMessage(
+        error_code, error_msg, *getData(), *getHeaders(), response
+    );
+    std::unique_ptr<Buffer::OwnedImpl> buf = std::make_unique<Buffer::OwnedImpl>();
+    buf->add(error_data);
+
+    std::unique_ptr<RequestHeaderMap> temp_headers = copyHeaders();
+    BavsErrorRequest* error_req = new BavsErrorRequest(
+                                config_, std::move(buf), std::move(temp_headers),
+                                saved_headers_,
+                                config_->flowdUpstream()->totalAttempts() - 1,
+                                config_->flowdUpstream(), REQ_TYPE_ERROR);
+    error_req->send();
+}
+
+
+void BavsInboundRequest::createAndSendError(std::string error_code, std::string error_msg) {
+    std::string error_data = BavsUtil::createErrorMessage(
+        error_code, error_msg, *getData(), *getHeaders()
+    );
+    std::unique_ptr<Buffer::OwnedImpl> buf = std::make_unique<Buffer::OwnedImpl>();
+    buf->add(error_data);
+
+    std::unique_ptr<RequestHeaderMap> temp_headers = copyHeaders();
+    BavsErrorRequest* error_req = new BavsErrorRequest(
+                                config_, std::move(buf), std::move(temp_headers),
+                                saved_headers_,
+                                config_->flowdUpstream()->totalAttempts() - 1,
+                                config_->flowdUpstream(), REQ_TYPE_ERROR);
+    error_req->send();
+}
+
+void BavsInboundRequest::handleConnectionError() {
+    if (retries_left_ > 0) {
+        doRetry();
+    } else {
+        createAndSendError(CONNECTION_ERROR, "Failed connecting to Service task");
+    }
+}
+
+void BavsInboundRequest::doRetry() {
+    std::unique_ptr<RequestHeaderMap> headers = copyHeaders();
+    std::unique_ptr<Buffer::OwnedImpl> data = std::make_unique<Buffer::OwnedImpl>();
+    data->add(*getData());
+
+    BavsInboundRequest* retry_request = new BavsInboundRequest(
+        config_, std::move(data), std::move(headers), saved_headers_,
+        retries_left_ - 1, target_, request_type_
+    );
+    retry_request->send();
+}
+
+std::string BavsInboundRequest::mergeResponseAndContext(Http::ResponseMessage* response) {
     Json::ObjectSharedPtr response_json = Json::Factory::loadFromString(response->body().toString());
     std::string updatee_string;
     /**
@@ -294,7 +231,7 @@ std::string BavsInboundRequest::mergeResponseAndContext(Http::ResponseMessagePtr
         } else if (!inbound_data_is_json_) {
             throw EnvoyException("Neither input nor output is json.");
         }
-        return original_inbound_data_->toString();
+        return getData()->toString();
     }
 
     if (!response_json->isObject()) {
@@ -308,11 +245,13 @@ std::string BavsInboundRequest::mergeResponseAndContext(Http::ResponseMessagePtr
         }
     }
 
-    std::string updater_string = build_json_from_params(response_json, config_->outputParams());
+    std::string updater_string = BavsUtil::build_json_from_params(
+        response_json, config_->outputParams()
+    );
     Json::ObjectSharedPtr updater = Json::Factory::loadFromString(updater_string);
 
     if (inbound_data_is_json_) {
-        updatee_string = original_inbound_data_->toString();
+        updatee_string = getData()->toString();
     } else {
         // We're in the first step of workflow and the input data was ignorable.
         updatee_string = "{}";
@@ -325,9 +264,10 @@ std::string BavsInboundRequest::mergeResponseAndContext(Http::ResponseMessagePtr
 
     // At this point, we know that we have two valid json objects: the updater (the response)
     // and the updatee (the closure context).
-    return merge_jsons(updatee, updater);
+    return BavsUtil::merge_jsons(updatee, updater);
 }
-
 
 } // namespace Http
 } // namespace Envoy
+
+

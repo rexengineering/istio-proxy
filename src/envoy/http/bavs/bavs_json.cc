@@ -8,8 +8,40 @@
 
 namespace Envoy {
 namespace Http {
+namespace BavsUtil {
 
-std::string dumpHeaders(Http::RequestOrResponseHeaderMap& hdrs) {
+std::string createErrorMessage(std::string error_code, std::string error_msg,
+                               const Buffer::OwnedImpl& input_data,
+                               const Http::RequestHeaderMap& input_headers) {
+    std::map<std::string, std::string> elements;
+    elements["error_code"] = jstringify(error_code);
+    elements["error_msg"] = jstringify(error_msg);
+    elements["input_data_encoded"] = jstringify(Base64::encode(input_data, input_data.length()));
+
+    std::string dumped_hdrs = dumpHeaders(input_headers);
+    elements["input_headers_encoded"] = jstringify(Base64::encode(dumped_hdrs.c_str(), dumped_hdrs.size()));
+    return create_json_string(elements);
+}
+
+std::string createErrorMessage(std::string error_code, std::string error_msg,
+                               const Buffer::OwnedImpl& input_data, const Http::RequestHeaderMap& input_headers,
+                               Http::ResponseMessage& response) {
+    std::map<std::string, std::string> elements;
+    elements["error_code"] = jstringify(error_code);
+    elements["error_msg"] = jstringify(error_msg);
+    elements["input_data_encoded"] = jstringify(Base64::encode(input_data, input_data.length()));
+    elements["output_data_encoded"] = jstringify(Base64::encode(response.body(), response.body().length()));
+
+    std::string dumped_hdrs = dumpHeaders(input_headers);
+    elements["input_headers_encoded"] = jstringify(Base64::encode(dumped_hdrs.c_str(), dumped_hdrs.size()));
+
+    std::string dumped_output_hdrs = dumpHeaders(response.headers());
+    elements["output_headers_encoded"] = jstringify(
+        Base64::encode(dumped_output_hdrs.c_str(), dumped_output_hdrs.size()));
+    return create_json_string(elements);
+}
+
+std::string dumpHeaders(const Http::RequestOrResponseHeaderMap& hdrs) {
     std::stringstream ss;
     hdrs.iterate(
         [&ss](const HeaderEntry& header) -> HeaderMap::Iterate {
@@ -193,5 +225,6 @@ std::string merge_jsons(const Json::ObjectSharedPtr original, const Json::Object
     return create_json_string(json_elements);
 }
 
+} // namespace BavsUtil
 } // namespace Http
 } // namespace Envoy

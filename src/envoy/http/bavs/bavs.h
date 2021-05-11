@@ -22,22 +22,32 @@
 namespace Envoy {
 namespace Http {
 
-#define ERROR_TYPE_HEADER "x-rexflow-error-type"
-#define CONNECTION_ERROR "FAILED_CONNECTION"
-#define CONTEXT_INPUT_PARSING_ERROR "FAILED_CONTEXT_INPUT_PARSING"
-#define CONTEXT_OUTPUT_PARSING_ERROR "FAILED_CONTEXT_OUTPUT_PARSING"
-#define TASK_ERROR "FAILED_TASK"
+static const char* CONNECTION_ERROR("FAILED_CONNECTION");
+static const char* CONTEXT_INPUT_ERROR("FAILED_CONTEXT_INPUT_PARSING");
+static const char* CONTEXT_OUTPUT_ERROR("FAILED_CONTEXT_OUTPUT_PARSING");
+static const char* TASK_ERROR("FAILED_TASK");
 
 // For shadowing traffic.
-#define REQ_TYPE_HEADER "x-rexflow-request-type"
-#define REQ_TYPE_INBOUND "INBOUND"
-#define REQ_TYPE_OUTBOUND "OUTBOUND"
-#define REQ_TYPE_ERROR "ERROR"
-#define REQ_TYPE_TASK_ERROR "TASK_ERROR"
-#define ORIGINAL_REQ_FAILED_HDR "x-rexflow-original-request-failed"
+// TODO: Make these configurable via bavs.proto
+static const char* ORIGINAL_REQ_FAILED_HDR("x-rexflow-original-request-failed");
+static const char* REQ_TYPE_HEADER("x-rexflow-request-type");
+static const char* ORIGINAL_HOST_HDR("x-rexflow-original-host");
+static const char* ORIGINAL_PATH_HDR("x-rexflow-original-path");
+static const char* ORIGINAL_METHOD_HDR("x-rexflow-original-method");
 
+static const char* REQ_TYPE_INBOUND("INBOUND");
+static const char* REQ_TYPE_OUTBOUND("OUTBOUND");
+static const char* REQ_TYPE_ERROR("ERROR");
+static const char* REQ_TYPE_TASK_ERROR("TASK_ERROR");
+
+// Fine to hard-code these here because they come from Envoy, not rexflow.
+static const char* SPAN_ID_HEADER("x-b3-spanid");
+static const char* TRACE_ID_HEADER("x-b3-traceid");
+static const char* REQUEST_ID_HEADER("x-request-id");
+
+namespace BavsUtil {
 std::string jstringify(const std::string&);
-std::string dumpHeaders(Http::RequestOrResponseHeaderMap& hdrs);
+std::string dumpHeaders(const Http::RequestOrResponseHeaderMap& hdrs);
 std::string create_json_string(const std::map<std::string, std::string>& json_elements);
 std::string get_array_as_string(const Json::Object* json);
 std::string get_array_as_string(const std::vector<Json::ObjectSharedPtr>& arr);
@@ -48,10 +58,12 @@ std::string get_array_or_obj_str_from_json(const Json::ObjectSharedPtr json_obj,
         const std::string& key);
 
 std::string createErrorMessage(std::string error_code, std::string error_msg,
-                               Buffer::OwnedImpl& input_data, Http::RequestHeaderMap& input_headers,
+                               const Buffer::OwnedImpl& input_data, const Http::RequestHeaderMap& input_headers,
                                Http::ResponseMessage& response);
 std::string createErrorMessage(std::string error_code, std::string error_msg,
-                               Buffer::OwnedImpl& input_data, Http::RequestHeaderMap& input_headers);
+                               const Buffer::OwnedImpl& input_data, const Http::RequestHeaderMap& input_headers);
+} // namespace BavsUtil
+
 
 class UpstreamConfig {
 public:
@@ -59,14 +71,19 @@ public:
     UpstreamConfig(const bavs::Upstream& proto_config) :
         full_hostname_(proto_config.full_hostname()), port_(proto_config.port()),
         path_(proto_config.path()), method_(proto_config.method()), total_attempts_(proto_config.total_attempts()),
-        task_id_(proto_config.task_id()) {}
+        wf_tid_(proto_config.wf_tid()) {
 
-    inline const std::string& full_hostname() const { return full_hostname_; }
+        cluster_ = "outbound|" + std::to_string(port_) + "||" + full_hostname_;
+    }
+
+    inline const std::string& fullHostName() const { return full_hostname_; }
     inline int port() const { return port_; }
     inline const std::string& path() const { return path_; }
     inline const std::string& method() const { return method_; }
     inline int totalAttempts() const { return total_attempts_; }
-    inline const std::string& taskId() const { return task_id_; }
+    inline const std::string& wfTID() const { return wf_tid_; }
+    inline const std::string& cluster() const { return cluster_; }
+
 
 private:
     std::string full_hostname_;
@@ -74,7 +91,8 @@ private:
     std::string path_;
     std::string method_;
     int total_attempts_;
-    std::string task_id_;
+    std::string wf_tid_;
+    std::string cluster_;
 };
 
 using UpstreamConfigSharedPtr = std::shared_ptr<UpstreamConfig>;
@@ -82,44 +100,118 @@ using UpstreamConfigSharedPtr = std::shared_ptr<UpstreamConfig>;
 class BavsFilterConfig {
 public:
     virtual ~BavsFilterConfig() {}
-    BavsFilterConfig() {}
-    BavsFilterConfig(const bavs::BAVSFilter& proto_config);
+    BavsFilterConfig(const bavs::BAVSFilter& proto_config, Upstream::ClusterManager&);
 
-    virtual const std::string& wfIdValue() { return wf_id_; }
-    virtual const std::string& flowdCluster() { return flowd_cluster_; }
-    virtual const std::string& flowdPath() { return flowd_path_; }
-    virtual const std::string& taskId() { return task_id_; }
-    virtual const std::string& trafficShadowCluster() { return traffic_shadow_cluster_; }
-    virtual const std::string& trafficShadowPath() { return traffic_shadow_path_; }
-    virtual const std::vector<std::string>& headersToForward() { return headers_to_forward_; }
-    virtual const std::vector<const UpstreamConfigSharedPtr>& forwards() { return forwards_; }
+    const std::vector<const UpstreamConfigSharedPtr>& forwardUpstreams() { return forward_upstreams_; }
+    const UpstreamConfigSharedPtr flowdUpstream() { return flowd_upstream_; }
+    const UpstreamConfigSharedPtr shadowUpstream() { return shadow_upstream_; }
+    const std::vector<const UpstreamConfigSharedPtr>& errorGatewayUpstreams() {
+        return error_gateway_upstreams_;
+    }
+    bool isClosureTransport() { return is_closure_transport_; }
     std::vector<bavs::BAVSParameter>& inputParams() { return input_params_; }
     std::vector<bavs::BAVSParameter>& outputParams() { return output_params_; }
-    bool isClosureTransport() { return is_closure_transport_; }
-    int upstreamPort() { return upstream_port_; }
-    const UpstreamConfigSharedPtr errorGateway() { return error_gateway_; }
-    int inboundRetries() const { return inbound_retries_; }
-    virtual const std::vector<const UpstreamConfigSharedPtr>& errorUpstreams() { return error_upstreams_; }
+    const std::string& wfDID() { return wf_did_; }
+    const std::vector<std::string>& headersToForward() { return headers_to_forward_; }
+    Upstream::ClusterManager& clusterManager() { return cluster_manager_; }
+    UpstreamConfigSharedPtr inboundUpstream() { return inbound_upstream_; }
+    const std::string wfDIDHeader() { return wf_did_header_; }
+    const std::string wfIIDHeader() { return wf_iid_header_; }
+    const std::string wfTIDHeader() { return wf_tid_header_; }
+    const std::string requestFailedHeader() { return ORIGINAL_REQ_FAILED_HDR; }
+    const std::string requestTypeHeader() { return REQ_TYPE_HEADER; }
+    const std::string originalHostHeader() { return ORIGINAL_HOST_HDR; }
+    const std::string originalPathHeader() { return ORIGINAL_PATH_HDR; }
+    const std::string originalMethodHeader() { return ORIGINAL_METHOD_HDR; }
 
 private:
-    std::vector<const UpstreamConfigSharedPtr> forwards_;
-    std::string wf_id_;
-    std::string flowd_cluster_;
-    std::string flowd_path_;
-    std::string task_id_;
-    std::string traffic_shadow_cluster_;
-    std::string traffic_shadow_path_;
+    std::vector<const UpstreamConfigSharedPtr> forward_upstreams_;
+    std::vector<const UpstreamConfigSharedPtr> error_gateway_upstreams_;
+    UpstreamConfigSharedPtr inbound_upstream_;
+    UpstreamConfigSharedPtr flowd_upstream_;
+    UpstreamConfigSharedPtr shadow_upstream_;
+    std::string wf_did_;
     std::vector<std::string> headers_to_forward_;
     std::vector<bavs::BAVSParameter> input_params_;
     std::vector<bavs::BAVSParameter> output_params_;
     bool is_closure_transport_;
-    int upstream_port_;
-    UpstreamConfigSharedPtr error_gateway_;
-    int inbound_retries_;
-    std::vector<const UpstreamConfigSharedPtr> error_upstreams_;
+    Upstream::ClusterManager& cluster_manager_;
+    std::string wf_did_header_;
+    std::string wf_tid_header_;
+    std::string wf_iid_header_;
 };
 
 using BavsFilterConfigSharedPtr = std::shared_ptr<BavsFilterConfig>;
+
+class BavsRequestBase : public Http::AsyncClient::Callbacks {
+public:
+    BavsRequestBase(BavsFilterConfigSharedPtr config, std::unique_ptr<Buffer::OwnedImpl> data,
+                    std::unique_ptr<Http::RequestHeaderMap> headers,
+                    std::map<std::string, std::string> headers_to_forward, int retries_left,
+                    UpstreamConfigSharedPtr target, std::string request_type);
+
+    void send();
+    void onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) override;
+    void onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason) override;
+    void onBeforeFinalizeUpstreamSpan(Envoy::Tracing::Span&, const Http::ResponseHeaderMap*) override {}
+
+    // Utilities
+    Http::RequestHeaderMapPtr copyHeaders(Http::RequestOrResponseHeaderMap& headers);
+
+protected:
+    BavsFilterConfigSharedPtr config_;
+    const std::unique_ptr<Buffer::OwnedImpl> data_;
+    const std::unique_ptr<Http::RequestHeaderMap> headers_;
+    const int retries_left_;
+    const std::string request_type_;
+    std::map<std::string, std::string> saved_headers_;
+    UpstreamConfigSharedPtr target_;
+
+    const Http::RequestHeaderMap* getHeaders() const { return headers_.get(); }
+    const Buffer::OwnedImpl* getData() const { return data_.get(); }
+    Http::RequestHeaderMapPtr copyHeaders();
+
+    /**
+     * Returns the actual message that should be sent. Implemented by child classes.
+     * Should NOT make any requests. The BavsRequestBase handles sending it, traffic shadowing,
+     * and any error handling.
+     * 
+     * If the child class is unable to form a message to send (eg. if BAVS 2.0 context parameter
+     * matching fails), then the function should return nullptr. The getMessage() function is
+     * responsible for making any outbound ErrorRequests in such a case.
+     */
+    virtual std::unique_ptr<Http::RequestMessage> getMessage() PURE;
+
+    /**
+     * Called when request fails (normally due to connection issues).
+     */
+    virtual void processFailure(const AsyncClient::Request&, AsyncClient::FailureReason) PURE;
+
+    /**
+     * Called when request successfully comes back (note that it could be called with a non-200 response).
+     */
+    virtual void processSuccess(const AsyncClient::Request&, ResponseMessage*) PURE;
+
+    /**
+     * Called when the BavsRequestBase tries to send the request to the initial target
+     * cluster, but fails to connect to it. May be a no-op but should only be a no-op if the
+     * implementor is willing to fully give up and orphan the workflow instance (i.e. after
+     * we've already tried to hit the `http://flowd.rexflow:9001/instancefail` endpoint).
+     */
+    virtual void handleConnectionError() PURE;
+
+    /**
+     * Depending on the BavsFilterConfig contents, optionally shadows this request
+     * to a predetermined endpoint.
+     */
+    void sendShadowRequest(bool);
+
+private:
+    void preprocessHeaders(RequestHeaderMap&) const;
+
+    std::string cm_callback_id_;
+};
+
 
 /**
  * Usage: To send an inbound Workflow request and do appropriate error handling + forward
@@ -127,186 +219,100 @@ using BavsFilterConfigSharedPtr = std::shared_ptr<BavsFilterConfig>;
  * and call `->send()`. You should allow it to fall out of scope.
  * The BavsInboundRequest ctor + callbacks deal with cleanup.
  */
-class BavsInboundRequest : public Http::AsyncClient::Callbacks {
+class BavsInboundRequest : public BavsRequestBase {
 public:
-    BavsInboundRequest(BavsFilterConfigSharedPtr config, Upstream::ClusterManager& cm,
-                       std::unique_ptr<Http::RequestHeaderMapImpl> inbound_headers,
-                       std::unique_ptr<Buffer::OwnedImpl> original_inbound_data,
-                       std::unique_ptr<Buffer::OwnedImpl> inbound_data_to_send,
-                       int retries_left, std::string span_id, std::string instance_id,
-                       std::map<std::string, std::string> saved_headers,
-                       bool inbound_data_is_json, std::string service_cluster);
+    BavsInboundRequest(BavsFilterConfigSharedPtr config, std::unique_ptr<Buffer::OwnedImpl> data,
+                    std::unique_ptr<Http::RequestHeaderMap> headers,
+                    std::map<std::string, std::string> headers_to_forward, int retries_left,
+                    UpstreamConfigSharedPtr target, std::string request_type):
+                    BavsRequestBase(config, std::move(data),
+                    std::move(headers), headers_to_forward, retries_left,
+                    target, request_type) {}
 
-    void onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) override;
-    void onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason) override;
-    void onBeforeFinalizeUpstreamSpan(Envoy::Tracing::Span&, const Http::ResponseHeaderMap*) override {}
-    void send();
+protected:
+    std::unique_ptr<Http::RequestMessage> getMessage() override;
+    void processSuccess(const AsyncClient::Request&, ResponseMessage*) override;
+    void processFailure(const AsyncClient::Request&, AsyncClient::FailureReason) override;
+    void handleConnectionError() override;
 
 private:
-    Http::RequestHeaderMapPtr createOutboundHeaders(UpstreamConfigSharedPtr upstream_ptr);
-    std::string mergeResponseAndContext(Http::ResponseMessagePtr& response);
-
-    void raiseConnectionError();
-    void raiseContextOutputParsingError(Http::ResponseMessage& msg, std::string error_msg);
-    void raiseContextOutputParsingError(Http::ResponseMessage&); 
-    void raiseTaskError(Http::ResponseMessage&);
+    std::string mergeResponseAndContext(Http::ResponseMessage* response);
     void doRetry();
+    void createAndSendError(std::string error_code, std::string error_msg);
+    void createAndSendError(std::string error_code, std::string error_msg, ResponseMessage& response);
+    void raiseTaskError(Http::ResponseMessage&);
 
-    BavsFilterConfigSharedPtr config_;
-    Upstream::ClusterManager& cm_;
-    std::unique_ptr<Http::RequestHeaderMapImpl> inbound_headers_;
-    std::unique_ptr<Buffer::OwnedImpl> original_inbound_data_;
-    std::unique_ptr<Buffer::OwnedImpl> inbound_data_to_send_;
-    int retries_left_;
-    std::string span_id_;
-    std::string instance_id_;
-    std::map<std::string, std::string> saved_headers_;
     bool inbound_data_is_json_;
-    std::string cm_callback_id_;
-    std::string service_cluster_;
 };
 
-class BavsOutboundRequest : public Http::AsyncClient::Callbacks {
+class BavsOutboundRequest : public BavsRequestBase {
 public:
-    BavsOutboundRequest(Upstream::ClusterManager& cm, std::string target_cluster, std::string error_cluster,
-                        int retries_left, std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send,
-                        std::unique_ptr<Buffer::OwnedImpl> data_to_send, std::string task_id,
-                        std::string error_path, std::string shadow_cluster, std::string shadow_path);
-    ~BavsOutboundRequest() = default;
-    void onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) override;
-    void onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason) override;
-    void onBeforeFinalizeUpstreamSpan(Envoy::Tracing::Span&, const Http::ResponseHeaderMap*) override {}
-    void send();
+    BavsOutboundRequest(BavsFilterConfigSharedPtr config, std::unique_ptr<Buffer::OwnedImpl> data,
+                    std::unique_ptr<Http::RequestHeaderMap> headers,
+                    std::map<std::string, std::string> headers_to_forward, int retries_left,
+                    UpstreamConfigSharedPtr target, std::string request_type):
+                    BavsRequestBase(config, std::move(data),
+                    std::move(headers), headers_to_forward, retries_left,
+                    target, request_type) {}
 
-private:
-    Upstream::ClusterManager& cm_;
-    std::string target_cluster_;
-    std::string error_cluster_;
-    int retries_left_;
-    std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send_;
-    std::unique_ptr<Buffer::OwnedImpl> data_to_send_;
-    std::string cm_callback_id_;
-    std::string task_id_;
-    std::string error_path_;
-    std::string shadow_cluster_;
-    std::string shadow_path_;
-
-    void raiseConnectionError();
+protected:
+    std::unique_ptr<Http::RequestMessage> getMessage() override;
+    void processSuccess(const AsyncClient::Request&, ResponseMessage*) override;
+    void processFailure(const AsyncClient::Request&, AsyncClient::FailureReason) override;
+    void handleConnectionError() override;
 };
 
-class BavsErrorRequest : public Http::AsyncClient::Callbacks {
-/**
- * Defines a last-ditch effort to notify Flowd that something's gone horribly wrong.
- * If this request fails, then the WF Instance becomes orphaned.
- */
+class BavsErrorRequest : public BavsRequestBase {
 public:
-    BavsErrorRequest(Upstream::ClusterManager& cm, std::string cluster,
-                     std::unique_ptr<Buffer::OwnedImpl> data_to_send,
-                     std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send,
-                     std::string error_path, std::string shadow_cluster,
-                     std::string shadow_path);
-    ~BavsErrorRequest() = default;
-    void onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) override;
-    void onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason) override;
-    void onBeforeFinalizeUpstreamSpan(Envoy::Tracing::Span&, const Http::ResponseHeaderMap*) override {}
-    void send();
+    BavsErrorRequest(BavsFilterConfigSharedPtr config, std::unique_ptr<Buffer::OwnedImpl> data,
+                    std::unique_ptr<Http::RequestHeaderMap> headers,
+                    std::map<std::string, std::string> headers_to_forward, int retries_left,
+                    UpstreamConfigSharedPtr target, std::string request_type):
+                    BavsRequestBase(config, std::move(data),
+                    std::move(headers), headers_to_forward, retries_left,
+                    target, request_type) {}
 
-private:
-    Upstream::ClusterManager& cm_;
-    std::string cluster_;
-    std::unique_ptr<Buffer::OwnedImpl> data_to_send_;
-    std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send_;
-    std::string cm_callback_id_;
-    std::string error_path_;
-    std::string shadow_cluster_;
-    std::string shadow_path_;
+protected:
+    std::unique_ptr<Http::RequestMessage> getMessage() override;
+    void processSuccess(const AsyncClient::Request&, ResponseMessage*) override;
+    void processFailure(const AsyncClient::Request&, AsyncClient::FailureReason) override;
+    void handleConnectionError() override;
 };
-
-class BavsTrafficShadowRequest : public Http::AsyncClient::Callbacks {
-/**
- * Simply shadows the request to a pre-determined endpoint in order to
- * enable post-processing on everything that happens in the workflow.
- * 
- * This is intentionally a fire-and-forget request in order to save
- * resources.
- */
-public:
-    BavsTrafficShadowRequest(Upstream::ClusterManager& cm, std::string cluster,
-                     Buffer::Instance& data_to_send,
-                     Http::RequestHeaderMapImpl& headers_to_send,
-                     std::string path, std::string request_type);
-    ~BavsTrafficShadowRequest() = default;
-    void onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) override;
-    void onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason) override;
-    void onBeforeFinalizeUpstreamSpan(Envoy::Tracing::Span&, const Http::ResponseHeaderMap*) override {}
-    void send();
-
-private:
-    Upstream::ClusterManager& cm_;
-    std::string cluster_;
-    std::unique_ptr<Buffer::OwnedImpl> data_to_send_;
-    std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send_;
-    std::string cm_callback_id_;
-    std::string path_;
-    std::string request_type_;
-};
-
-class BavsTaskErrorRequest : public Http::AsyncClient::Callbacks {
-public:
-    BavsTaskErrorRequest(Upstream::ClusterManager& cm, std::string cluster,
-                     std::unique_ptr<Buffer::OwnedImpl> data_to_send,
-                     std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send,
-                     BavsFilterConfigSharedPtr config,
-                     UpstreamConfigSharedPtr upstream);
-    ~BavsTaskErrorRequest() = default;
-    void onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) override;
-    void onFailure(const Http::AsyncClient::Request&, Http::AsyncClient::FailureReason) override;
-    void onBeforeFinalizeUpstreamSpan(Envoy::Tracing::Span&, const Http::ResponseHeaderMap*) override {}
-    void send();
-
-private:
-    Upstream::ClusterManager& cm_;
-    std::string cluster_;
-    std::unique_ptr<Buffer::OwnedImpl> data_to_send_;
-    std::unique_ptr<Http::RequestHeaderMapImpl> headers_to_send_;
-    std::string cm_callback_id_;
-    BavsFilterConfigSharedPtr config_;
-    UpstreamConfigSharedPtr upstream_;
-};
-
 
 class BavsFilter : public PassThroughFilter, public Logger::Loggable<Logger::Id::filter> {
 private:
     const BavsFilterConfigSharedPtr config_;
-    Upstream::ClusterManager& cluster_manager_;
     bool is_workflow_;
     std::unique_ptr<RequestHeaderMapImpl> inbound_headers_;
     std::unique_ptr<Buffer::OwnedImpl> original_inbound_data_;
-    std::unique_ptr<Buffer::OwnedImpl> inbound_data_to_send_;
-    std::string service_cluster_;
 
-    bool inbound_data_is_json_;
-
-    std::string instance_id_;
     std::map<std::string, std::string> saved_headers_;
-    std::string spanid_;
 
     void sendMessage();
     void raiseContextInputError(std::string msg);
 
 public:
-    BavsFilter(BavsFilterConfigSharedPtr config, Upstream::ClusterManager& cluster_manager)
-    : config_(config), cluster_manager_(cluster_manager), is_workflow_(false),
+    BavsFilter(BavsFilterConfigSharedPtr config)
+    : config_(config), is_workflow_(false),
       inbound_headers_(Http::RequestHeaderMapImpl::create()),
-      original_inbound_data_(std::make_unique<Buffer::OwnedImpl>()),
-      inbound_data_to_send_(std::make_unique<Buffer::OwnedImpl>()),
-      service_cluster_("inbound|" + std::to_string(config->upstreamPort()) + "||"),
-      inbound_data_is_json_(false) {}
+      original_inbound_data_(std::make_unique<Buffer::OwnedImpl>()) {}
 
     FilterDataStatus decodeData(Buffer::Instance&, bool);
     FilterDataStatus encodeData(Buffer::Instance&, bool);
     FilterHeadersStatus decodeHeaders(Http::RequestHeaderMap&, bool);
     FilterHeadersStatus encodeHeaders(Http::ResponseHeaderMap&, bool);
+};
+
+
+/**
+ * Null callbacks do nothing. Used for fire-and-forget requests, such as
+ * traffic shadowing.
+ */
+class NullCallbacks : public AsyncClient::Callbacks {
+public:
+    void onSuccess(const AsyncClient::Request&, ResponseMessagePtr&&) override {}
+    void onFailure(const AsyncClient::Request&, AsyncClient::FailureReason) override {}
+    void onBeforeFinalizeUpstreamSpan(Envoy::Tracing::Span&, const ResponseHeaderMap*) override {}
 };
 
 } // namespace Http
