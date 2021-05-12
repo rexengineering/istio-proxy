@@ -24,8 +24,8 @@
 namespace Envoy {
 namespace Http {
 
-BavsFilterConfig::BavsFilterConfig(
-    const bavs::BAVSFilter& proto_config, Upstream::ClusterManager& cm) : cluster_manager_(cm) {
+BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config, Upstream::ClusterManager& cm)
+    : cluster_manager_(cm) {
     forward_upstreams_.reserve(proto_config.forward_upstreams_size());
     for (auto iter=proto_config.forward_upstreams().begin();
          iter != proto_config.forward_upstreams().end();
@@ -85,9 +85,13 @@ void BavsFilter::sendMessage() {
         ""
     );
     BavsInboundRequest* inbound_request = new BavsInboundRequest(
-            config_, std::move(original_inbound_data_), std::move(inbound_headers_),
-            saved_headers_, config_->inboundUpstream()->totalAttempts() - 1,
-            config_->inboundUpstream(), REQ_TYPE_INBOUND);
+            config_,
+            std::move(original_inbound_data_),
+            std::move(inbound_headers_),
+            saved_headers_,
+            config_->inboundUpstream()->totalAttempts() - 1,
+            config_->inboundUpstream(),
+            REQ_TYPE_INBOUND);
     inbound_request->send();
 }
 
