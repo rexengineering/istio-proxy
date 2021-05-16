@@ -69,10 +69,13 @@ class UpstreamConfig {
 public:
     UpstreamConfig() {}
     UpstreamConfig(const bavs::Upstream& proto_config) :
-        full_hostname_(proto_config.full_hostname()), port_(proto_config.port()),
-        path_(proto_config.path()), method_(proto_config.method()), total_attempts_(proto_config.total_attempts()),
-        wf_tid_(proto_config.wf_tid()) {
-
+        full_hostname_(proto_config.full_hostname()),
+        port_(proto_config.port()),
+        path_(proto_config.path()),
+        method_(proto_config.method()),
+        total_attempts_(proto_config.total_attempts()),
+        wf_tid_(proto_config.wf_tid())
+    {
         cluster_ = "outbound|" + std::to_string(port_) + "||" + full_hostname_;
     }
 
@@ -145,10 +148,14 @@ using BavsFilterConfigSharedPtr = std::shared_ptr<BavsFilterConfig>;
 
 class BavsRequestBase : public Http::AsyncClient::Callbacks {
 public:
-    BavsRequestBase(BavsFilterConfigSharedPtr config, std::unique_ptr<Buffer::OwnedImpl> data,
-                    std::unique_ptr<Http::RequestHeaderMap> headers,
-                    std::map<std::string, std::string> headers_to_forward, int retries_left,
-                    UpstreamConfigSharedPtr target, std::string request_type);
+    BavsRequestBase(
+        BavsFilterConfigSharedPtr config,
+        std::unique_ptr<Buffer::OwnedImpl> data,
+        std::unique_ptr<Http::RequestHeaderMap> headers,
+        std::map<std::string, std::string> headers_to_forward,
+        int retries_left,
+        UpstreamConfigSharedPtr target,
+        std::string request_type);
 
     void send();
     void onSuccess(const Http::AsyncClient::Request&, Http::ResponseMessagePtr&& response) override;
@@ -221,19 +228,30 @@ private:
  */
 class BavsInboundRequest : public BavsRequestBase {
 public:
-    BavsInboundRequest(BavsFilterConfigSharedPtr config, std::unique_ptr<Buffer::OwnedImpl> data,
+    BavsInboundRequest(BavsFilterConfigSharedPtr config,
+                    std::unique_ptr<Buffer::OwnedImpl> data,
                     std::unique_ptr<Http::RequestHeaderMap> headers,
-                    std::map<std::string, std::string> headers_to_forward, int retries_left,
-                    UpstreamConfigSharedPtr target, std::string request_type):
-                    BavsRequestBase(config, std::move(data),
-                    std::move(headers), headers_to_forward, retries_left,
-                    target, request_type) {}
+                    std::map<std::string, std::string> headers_to_forward,
+                    int retries_left,
+                    UpstreamConfigSharedPtr target,
+                    std::string request_type)
+                    :   BavsRequestBase(
+                            config,
+                            std::move(data),
+                            std::move(headers),
+                            headers_to_forward,
+                            retries_left,
+                            target,
+                            request_type
+                        )
+                    {}
 
 protected:
     std::unique_ptr<Http::RequestMessage> getMessage() override;
     void processSuccess(const AsyncClient::Request&, ResponseMessage*) override;
     void processFailure(const AsyncClient::Request&, AsyncClient::FailureReason) override;
     void handleConnectionError() override;
+    std::string json_substitution(Json::ObjectSharedPtr json, const std::string& src);
 
 private:
     std::string mergeResponseAndContext(Http::ResponseMessage* response);
@@ -241,19 +259,28 @@ private:
     void createAndSendError(std::string error_code, std::string error_msg);
     void createAndSendError(std::string error_code, std::string error_msg, ResponseMessage& response);
     void raiseTaskError(Http::ResponseMessage&);
+    std::string sub_json_token(Json::ObjectSharedPtr json, std::string::const_iterator& itr, std::string::const_iterator end, int level = 0);
 
     bool inbound_data_is_json_;
 };
 
 class BavsOutboundRequest : public BavsRequestBase {
 public:
-    BavsOutboundRequest(BavsFilterConfigSharedPtr config, std::unique_ptr<Buffer::OwnedImpl> data,
-                    std::unique_ptr<Http::RequestHeaderMap> headers,
-                    std::map<std::string, std::string> headers_to_forward, int retries_left,
-                    UpstreamConfigSharedPtr target, std::string request_type):
-                    BavsRequestBase(config, std::move(data),
-                    std::move(headers), headers_to_forward, retries_left,
-                    target, request_type) {}
+    BavsOutboundRequest(
+        BavsFilterConfigSharedPtr config,
+        std::unique_ptr<Buffer::OwnedImpl> data,
+        std::unique_ptr<Http::RequestHeaderMap> headers,
+        std::map<std::string, std::string> headers_to_forward,
+        int retries_left,
+        UpstreamConfigSharedPtr target,
+        std::string request_type)
+        : BavsRequestBase(
+            config,
+            std::move(data),
+            std::move(headers),
+            headers_to_forward,
+            retries_left,
+            target, request_type) {}
 
 protected:
     std::unique_ptr<Http::RequestMessage> getMessage() override;

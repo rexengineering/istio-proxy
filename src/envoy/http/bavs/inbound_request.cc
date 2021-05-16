@@ -37,6 +37,9 @@ std::unique_ptr<Http::RequestMessage> BavsInboundRequest::getMessage() {
                 message->body().add(new_input);
                 message->headers().setContentLength(new_input.size());
                 message->headers().setContentType("application/json");
+                // perform token substitution from the input json
+                std::string path = json_substitution(json, config_->inboundUpstream()->path());
+                message->headers().setPath(path);
             }
         } catch(const EnvoyException& exn) {
             std::string error_msg = "Failed to build inbound request from context parameters: ";
@@ -266,6 +269,50 @@ std::string BavsInboundRequest::mergeResponseAndContext(Http::ResponseMessage* r
     // and the updatee (the closure context).
     return BavsUtil::merge_jsons(updatee, updater);
 }
+
+/**
+ * Take an input string with (supposed) embedded token references bracketed by {}
+ * e.g. "hello {world}" In this case, the token "world" is abstracted, and a node
+ * with that name is searched in the json.
+ */
+std::string BavsInboundRequest::json_substitution(Json::ObjectSharedPtr json, const std::string& src) {
+    std::string::const_iterator itr = src.begin();
+    std::string trg = sub_json_token(json, itr, src.cend());
+    std::cout << "Json sub results " << src << '\n' << trg << std::endl;
+    return trg;
+}
+
+std::string BavsInboundRequest::sub_json_token(Json::ObjectSharedPtr json, std::string::const_iterator& itr, std::string::const_iterator end, int level) {
+    const char BEGIN_TOK = '{';
+    const char END_TOK   = '}';
+
+    std::string trg;
+    for ( ; itr != end; ++itr )
+    {
+        char c(*itr);
+        switch(c)
+        {
+            case BEGIN_TOK:
+                // found a nested reference - so resolve it
+                trg.append(sub_json_token(json, ++itr, end, level + 1));
+                break;
+            case END_TOK:
+                if (level) {
+                    // trg contains a JSON path to be resolved, and its
+                    // value used in place of the identified path
+                    return json->getString(trg);
+                }
+                // otherwise error?
+                break;
+            default:
+                trg.append(1,c);
+                break;
+        }
+    }
+    // if (level) error?
+    return trg;
+}
+
 
 } // namespace Http
 } // namespace Envoy

@@ -225,6 +225,28 @@ std::string merge_jsons(const Json::ObjectSharedPtr original, const Json::Object
     return create_json_string(json_elements);
 }
 
+/**
+ * Divide a string by a delimieter
+ *
+ * str - is the string to divide
+ * delim - the delimiter - can be simple (e.g. ".") or complex e.g. "->"
+ */
+std::vector<std::string> split_string(const std::string& str, const std::string& delim)
+{
+    std::vector<std::string> tokens;
+    size_t prev = 0, pos = 0;
+    do
+    {
+        pos = str.find(delim, prev);
+        if (pos == std::string::npos) pos = str.length();
+        std::string token = str.substr(prev, pos-prev);
+        if (!token.empty()) tokens.push_back(token);
+        prev = pos + delim.length();
+    }
+    while (pos < str.length() && prev < str.length());
+    return tokens;
+}
+
 } // namespace BavsUtil
 } // namespace Http
 } // namespace Envoy

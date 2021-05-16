@@ -3,14 +3,20 @@
 namespace Envoy {
 namespace Http {
 
-BavsRequestBase::BavsRequestBase(BavsFilterConfigSharedPtr config, std::unique_ptr<Buffer::OwnedImpl> data,
+BavsRequestBase::BavsRequestBase(BavsFilterConfigSharedPtr config,
+                                 std::unique_ptr<Buffer::OwnedImpl> data,
                                  std::unique_ptr<Http::RequestHeaderMap> headers,
-                                 std::map<std::string, std::string> saved_headers, int retries_left,
-                                 UpstreamConfigSharedPtr target, std::string request_type) :
-                                 config_(config), data_(std::move(data)),
-                                 headers_(std::move(headers)), retries_left_(retries_left),
-                                 request_type_(request_type), saved_headers_(saved_headers),
-                                 target_(target) {
+                                 std::map<std::string, std::string> saved_headers,
+                                 int retries_left,
+                                 UpstreamConfigSharedPtr target,
+                                 std::string request_type)
+                                 :  config_(config),
+                                    data_(std::move(data)),
+                                    headers_(std::move(headers)),
+                                    retries_left_(retries_left),
+                                    request_type_(request_type),
+                                    saved_headers_(saved_headers),
+                                    target_(target) {
     Random::RandomGeneratorImpl rng;
     cm_callback_id_ = rng.uuid();
     config_->clusterManager().storeRequestCallbacks(cm_callback_id_, this);
@@ -28,9 +34,9 @@ void BavsRequestBase::send() {
     Http::AsyncClient* client = nullptr;
     bool bombs_away = false;
     try {
-        std::string cluster = (request_type_ == REQ_TYPE_INBOUND ?
-            "inbound|" + std::to_string(target_->port()) + "||"
-            : target_->cluster());
+        std::string cluster = (request_type_ == REQ_TYPE_INBOUND)
+            ? "inbound|" + std::to_string(target_->port()) + "||"
+            : target_->cluster();
         client = &(config_->clusterManager().httpAsyncClientForCluster(cluster));
         std::unique_ptr<Http::RequestMessage> msg = getMessage();
         if (msg != nullptr && client != nullptr) {
