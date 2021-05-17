@@ -3,12 +3,26 @@
 #include <iostream>
 #include <stdio.h>
 #include <cstdlib>
+#include <sstream>
+#include <iomanip>
 
 #include "bavs.h"
 
 namespace Envoy {
 namespace Http {
 namespace BavsUtil {
+
+std::string escape_json(const std::string &s) {
+    std::ostringstream o;
+    for (auto c = s.cbegin(); c != s.cend(); c++) {
+        if (*c == '"' || *c == '\\' || ('\x00' <= *c && *c <= '\x1f')) {
+            o << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(*c);
+        } else {
+            o << *c;
+        }
+    }
+    return o.str();
+}
 
 std::string createErrorMessage(std::string error_code, std::string error_msg,
                                const Buffer::OwnedImpl& input_data,
@@ -53,7 +67,7 @@ std::string dumpHeaders(const Http::RequestOrResponseHeaderMap& hdrs) {
 }
 
 std::string jstringify(const std::string& st) {
-    return "\"" + st + "\"";
+    return "\"" + escape_json(st) + "\"";
 }
 
 std::string create_json_string(const std::map<std::string, std::string>& json_elements) {
@@ -62,7 +76,7 @@ std::string create_json_string(const std::map<std::string, std::string>& json_el
     ss << "{";
     size_t i = 0;
     for (const auto& pair : json_elements) {
-        ss << "\"" << pair.first << "\": " << pair.second;
+        ss << jstringify(pair.first) << ": " << pair.second;
         if (i++ < num_params - 1) {
             ss  << ",";
         }
@@ -104,7 +118,7 @@ std::string get_object_as_string(const Json::Object* json) {
         case Json::Type::Object:
             return json->asJsonString();
         case Json::Type::String:
-            return "\"" + json->asString() + "\"";
+            return jstringify(json->asString());
     }
 }
 
@@ -185,7 +199,7 @@ std::string build_json_from_params(const Json::ObjectSharedPtr json_obj,
 
         std::string element;
         if (param.type() == "STRING") {
-            element = "\"" + json_obj->getString(param.value()) + "\"";
+            element = jstringify(json_obj->getString(param.value()));
         } else if (param.type() == "BOOLEAN") {
             element = json_obj->getBoolean(param.value()) ? "true" : "false";
         } else if (param.type() == "DOUBLE") {

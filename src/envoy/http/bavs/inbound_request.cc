@@ -275,7 +275,6 @@ std::string BavsInboundRequest::mergeResponseAndContext(Http::ResponseMessage* r
 std::string BavsInboundRequest::json_substitution(Json::ObjectSharedPtr json, const std::string& src) {
     std::string::const_iterator itr = src.begin();
     std::string trg = sub_json_token(json, itr, src.cend());
-    std::cout << "Json sub results " << src << '\n' << trg << std::endl;
     return trg;
 }
 
