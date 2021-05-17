@@ -243,8 +243,20 @@ public:
                             retries_left,
                             target,
                             request_type
-                        )
-                    {}
+                        ) {
+
+        auto value = getHeaders()->getContentTypeValue();
+        if (value == "application/json") {
+            try {
+                Json::ObjectSharedPtr temp = Json::Factory::loadFromString(getData()->toString());
+                inbound_data_is_json_ = true;
+            } catch (const EnvoyException&) {
+                inbound_data_is_json_ = false;
+            }
+        } else {
+            inbound_data_is_json_ = false;
+        }
+    }
 
 protected:
     std::unique_ptr<Http::RequestMessage> getMessage() override;

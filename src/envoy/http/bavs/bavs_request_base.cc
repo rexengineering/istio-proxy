@@ -25,7 +25,6 @@ BavsRequestBase::BavsRequestBase(BavsFilterConfigSharedPtr config,
 void BavsRequestBase::preprocessHeaders(RequestHeaderMap& headers) const {
     for (const auto& saved_header : saved_headers_) {
         headers.setCopy(Http::LowerCaseString(saved_header.first), saved_header.second);
-        std::cout << saved_header.first << " : " << saved_header.second << std::endl;
     }
 }
 

@@ -50,6 +50,7 @@ std::unique_ptr<Http::RequestMessage> BavsInboundRequest::getMessage() {
     } /* if (config_->isClosureTransport()) */ else { 
         message->body().add(*original_data);
     }
+    message->headers().setMethod(target_->method());
     return message;
 }
 
@@ -76,11 +77,7 @@ void BavsInboundRequest::processSuccess(const AsyncClient::Request&, ResponseMes
     if (config_->isClosureTransport()) {
         // If status is bad, we notify flowd or error gateway
         if (status < 200 || status >= 300) {
-            if (retries_left_ > 0) {
-                doRetry();
-            } else {
-                raiseTaskError(*response);
-            }
+            raiseTaskError(*response);
             return;
         }
         // If we get here, then we know that the call to the inbound service (i.e. the
