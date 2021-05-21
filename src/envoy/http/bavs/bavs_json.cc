@@ -169,7 +169,12 @@ std::string build_json_from_params(const Json::ObjectSharedPtr json_obj,
         // Wants to pull a context variable and send just that variable directly as input
 
         const auto& param = input_params[0];
-        if (!json_obj->hasObject(param.value())) {
+        if (param.value() == ".") {
+            // Essentially, this is a super-special case where we behave like
+            // BAVS 1.0.
+            return get_object_as_string(json_obj.get());
+        }
+        else if (!json_obj->hasObject(param.value())) {
             if (!param.has_default_value()) {
                 throw EnvoyException("Could not find param " + param.value());
             } else {
