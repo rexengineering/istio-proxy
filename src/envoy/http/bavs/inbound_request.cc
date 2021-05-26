@@ -110,6 +110,7 @@ void BavsInboundRequest::processSuccess(const AsyncClient::Request&, ResponseMes
         std::unique_ptr<Buffer::OwnedImpl> request_data = std::make_unique<Buffer::OwnedImpl>();
         request_data->add(data_to_send);
         RequestHeaderMapPtr request_headers = copyHeaders();
+        request_headers->setCopy(LowerCaseString(config_->wfTIDHeader()), upstream->wfTID());
 
         BavsOutboundRequest* outbound_request = new BavsOutboundRequest(
             config_, std::move(request_data), std::move(request_headers),

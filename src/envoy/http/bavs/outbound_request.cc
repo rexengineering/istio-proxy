@@ -47,8 +47,10 @@ void BavsOutboundRequest::processSuccess(const Http::AsyncClient::Request&, Resp
 void BavsOutboundRequest::processFailure(const AsyncClient::Request&, AsyncClient::FailureReason) {
     if (retries_left_ > 0) {
         std::unique_ptr<Buffer::OwnedImpl> request_data = std::make_unique<Buffer::OwnedImpl>();
-        request_data->add(*getData());
-        RequestHeaderMapPtr request_headers = copyHeaders();
+        // get the message we tried to send
+        std::unique_ptr<RequestMessage> msg = getMessage();
+        request_data->add(msg->body());
+        RequestHeaderMapPtr request_headers = copyHeaders(msg->headers());
 
         BavsOutboundRequest *retry_request = new BavsOutboundRequest(
             config_, std::move(request_data), std::move(request_headers), saved_headers_,

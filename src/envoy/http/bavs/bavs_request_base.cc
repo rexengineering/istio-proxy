@@ -36,6 +36,7 @@ void BavsRequestBase::send() {
         std::string cluster = (request_type_ == REQ_TYPE_INBOUND)
             ? "inbound|" + std::to_string(target_->port()) + "||"
             : target_->cluster();
+
         client = &(config_->clusterManager().httpAsyncClientForCluster(cluster));
         std::unique_ptr<Http::RequestMessage> msg = getMessage();
         if (msg != nullptr && client != nullptr) {
