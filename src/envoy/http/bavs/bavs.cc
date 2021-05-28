@@ -1,25 +1,4 @@
-#include <string>
-#include <cstring>
-#include <iostream>
-#include <stdio.h>
-#include <cstdlib>
-
-#include "envoy/http/filter.h"
-#include "envoy/registry/registry.h"
-
-#include "common/http/header_map_impl.h"
-#include "common/http/message_impl.h"
-#include "common/common/base64.h"
 #include "bavs.h"
-#include "common/upstream/cluster_manager_impl.h"
-#include "common/common/random_generator.h"
-
-#include <typeinfo>
-#include <future>
-#include <random>
-#include <thread>
-#include <chrono>
-
 
 namespace Envoy {
 namespace Http {
@@ -103,6 +82,7 @@ FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, b
         task_entry->value() != NULL &&
         task_entry->value().getStringView() != config_->inboundUpstream()->wfTID()))
     {
+        ENVOY_LOG(warn, "BAVS ignoring request: incorrect task id.");
         return FilterHeadersStatus::Continue;
     }
 
@@ -111,6 +91,7 @@ FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, b
     );
     if (wf_id_entry == NULL || wf_id_entry->value() == NULL ||
             (wf_id_entry->value().getStringView() != config_->wfDID())) {
+        ENVOY_LOG(warn, "BAVS ignoring request: missing or wrong x-rexflow-did header.");
         return FilterHeadersStatus::Continue;
     }
 
@@ -118,9 +99,12 @@ FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, b
         Http::LowerCaseString(config_->wfIIDHeader())
     );
     if ((instance_entry == NULL) || (instance_entry->value() == NULL)) {
+        ENVOY_LOG(warn, "BAVS ignoring request: no x-rexflow-iid header.");
         return FilterHeadersStatus::Continue;
     }
     saved_headers_[config_->wfIIDHeader()] = instance_entry->value().getStringView();
+    std::string instance_id(instance_entry->value().getStringView());
+    ENVOY_LOG(warn, "BAVS commencing processing for " + instance_id);
 
     auto& active_span = decoder_callbacks_->activeSpan();
     active_span.injectContext(headers);
@@ -177,6 +161,10 @@ FilterHeadersStatus BavsFilter::encodeHeaders(Http::ResponseHeaderMap&, bool) {
 
 FilterDataStatus BavsFilter::encodeData(Buffer::Instance&, bool) {
     return FilterDataStatus::Continue;
+}
+
+void BavsFilter::bavslog(std::string msg) {
+    ENVOY_LOG(warn, msg);
 }
 
 } // namespace Http

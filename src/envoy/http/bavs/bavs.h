@@ -1,23 +1,30 @@
 #pragma once
+#include <chrono>
+#include <cstdlib>
+#include <cstring>
+#include <future>
 #include <iostream>
-#include <stdio.h>
 #include <map>
 #include <queue>
+#include <random>
+#include <stdio.h>
+#include <string>
+#include <thread>
+#include <typeinfo>
 
-#include "envoy/http/filter.h"
 #include "common/buffer/buffer_impl.h"
-#include "common/http/header_map_impl.h"
-#include "envoy/http/async_client.h"
-#include "common/http/message_impl.h"
-
-#include "extensions/filters/http/common/pass_through_filter.h"
 #include "common/common/base64.h"
+#include "common/common/logger.h"
 #include "common/common/random_generator.h"
-
-#include "src/envoy/http/bavs/bavs.pb.h"
+#include "common/http/header_map_impl.h"
+#include "common/http/message_impl.h"
 #include "common/upstream/cluster_manager_impl.h"
+#include "envoy/http/async_client.h"
+#include "envoy/http/filter.h"
+#include "envoy/registry/registry.h"
 #include "envoy/upstream/cluster_manager.h"
-
+#include "extensions/filters/http/common/pass_through_filter.h"
+#include "src/envoy/http/bavs/bavs.pb.h"
 
 namespace Envoy {
 namespace Http {
@@ -340,6 +347,7 @@ public:
     FilterDataStatus encodeData(Buffer::Instance&, bool);
     FilterHeadersStatus decodeHeaders(Http::RequestHeaderMap&, bool);
     FilterHeadersStatus encodeHeaders(Http::ResponseHeaderMap&, bool);
+    static void bavslog(std::string);
 };
 
 

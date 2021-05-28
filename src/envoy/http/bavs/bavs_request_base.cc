@@ -47,6 +47,10 @@ void BavsRequestBase::send() {
                     LowerCaseString(config_->wfTIDHeader()), target_->wfTID()
                 );
             }
+            std::string logMessage(
+                "Sending " + request_type_ + " request:\n" + msg->body().toString()
+            );
+           BavsFilter::bavslog(logMessage);
             client->send(std::move(msg), *this, AsyncClient::RequestOptions());
             bombs_away = true;
         }
@@ -55,6 +59,7 @@ void BavsRequestBase::send() {
         // Implementors of this class must implement the handleConnectionError() method.
         // The method may be a no-op but should only be a no-op if the child class
         // implements the last-ditch error request attempt (i.e. at `flowd:9001/instancefail`)
+       BavsFilter::bavslog("Caught connection error.");
         handleConnectionError();
     }
     sendShadowRequest(bombs_away);
@@ -65,6 +70,7 @@ void BavsRequestBase::send() {
         config_->clusterManager().eraseRequestCallbacks(cm_callback_id_);
     }
 }
+
 
 
 // This does nothing and one of these objects is sufficient for all requests,
@@ -134,12 +140,17 @@ Http::RequestHeaderMapPtr BavsRequestBase::copyHeaders() {
 
 void BavsRequestBase::onSuccess(
         const Http::AsyncClient::Request& request, Http::ResponseMessagePtr&& response) {
+    auto status = response->headers().getStatusValue();
+    std::string logMessage = "BAVS Got response: " + std::string(status) +
+        "\n" + response->body().toString();
+   BavsFilter::bavslog(logMessage);
     processSuccess(request, response.get());
     config_->clusterManager().eraseRequestCallbacks(cm_callback_id_);
 }
 
 void BavsRequestBase::onFailure(
         const Http::AsyncClient::Request& request, Http::AsyncClient::FailureReason reason) {
+   BavsFilter::bavslog("BAVS: Request stream broken before request could be sent.");
     processFailure(request, reason);
     config_->clusterManager().eraseRequestCallbacks(cm_callback_id_);
 }
