@@ -1,5 +1,9 @@
 #include "bavs.h"
 
+#include "envoy/http/filter.h"
+#include "envoy/registry/registry.h"
+
+
 namespace Envoy {
 namespace Http {
 

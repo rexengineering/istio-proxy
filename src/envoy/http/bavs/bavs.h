@@ -5,12 +5,10 @@
 #include <future>
 #include <iostream>
 #include <map>
-#include <queue>
 #include <random>
 #include <stdio.h>
 #include <string>
 #include <thread>
-#include <typeinfo>
 
 #include "common/buffer/buffer_impl.h"
 #include "common/common/base64.h"
@@ -20,8 +18,6 @@
 #include "common/http/message_impl.h"
 #include "common/upstream/cluster_manager_impl.h"
 #include "envoy/http/async_client.h"
-#include "envoy/http/filter.h"
-#include "envoy/registry/registry.h"
 #include "envoy/upstream/cluster_manager.h"
 #include "extensions/filters/http/common/pass_through_filter.h"
 #include "src/envoy/http/bavs/bavs.pb.h"
