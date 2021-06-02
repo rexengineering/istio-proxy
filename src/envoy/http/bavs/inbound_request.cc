@@ -77,7 +77,11 @@ void BavsInboundRequest::processSuccess(const AsyncClient::Request&, ResponseMes
     if (config_->isClosureTransport()) {
         // If status is bad, we notify flowd or error gateway
         if (status < 200 || status >= 300) {
-            raiseTaskError(*response);
+            if (retries_left_ > 0) {
+                doRetry();
+            } else {
+                raiseTaskError(*response);
+            }
             return;
         }
         // If we get here, then we know that the call to the inbound service (i.e. the
