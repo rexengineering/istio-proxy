@@ -70,7 +70,11 @@ void BavsInboundRequest::processSuccess(const AsyncClient::Request&, ResponseMes
     // Note that Envoy will return a 502 or 503 and call it a "successful" request
     // when it fails to connect to the upstream service. So we must catch it here.
     if (status == 502 || status == 503) {
-        handleConnectionError();
+        std::string logMessage(
+            response->body().toString() + "\n" + "Connection error"
+        );
+        BavsFilter::bavslog(logMessage);
+        handleConnectionError(response);
         return;
     }
 
@@ -205,6 +209,14 @@ void BavsInboundRequest::handleConnectionError() {
         doRetry();
     } else {
         createAndSendError(CONNECTION_ERROR, "Failed connecting to Service task");
+    }
+}
+
+void BavsInboundRequest::handleConnectionError(Http::ResponseMessage* response) {
+    if (retries_left_ > 0) {
+        doRetry();
+    } else {
+        createAndSendError(CONNECTION_ERROR, "Failed connecting to Service task", *response);
     }
 }
 

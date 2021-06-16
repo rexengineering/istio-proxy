@@ -266,6 +266,7 @@ protected:
     void processSuccess(const AsyncClient::Request&, ResponseMessage*) override;
     void processFailure(const AsyncClient::Request&, AsyncClient::FailureReason) override;
     void handleConnectionError() override;
+    void handleConnectionError(Http::ResponseMessage*);
     std::string json_substitution(Json::ObjectSharedPtr json, const std::string& src);
 
 private:
