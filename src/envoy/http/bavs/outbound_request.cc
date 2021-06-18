@@ -20,6 +20,23 @@ void BavsOutboundRequest::handleConnectionError() {
     error_req->send();
 }
 
+void BavsOutboundRequest::handleBadOutboundResponse(ResponseMessage* response) {
+    std::string error_message = "Called outbound step on workflow but got bad response.";
+    std::string error_data = BavsUtil::createErrorMessage(
+        BAD_OUTBOUND_RESPONSE_ERROR, error_message, *getData(), *getHeaders(), *response
+    );
+
+    std::unique_ptr<Buffer::OwnedImpl> request_data = std::make_unique<Buffer::OwnedImpl>();
+    request_data->add(error_data);
+    RequestHeaderMapPtr request_headers = copyHeaders();
+
+    BavsErrorRequest* error_req = new BavsErrorRequest(
+        config_, std::move(request_data), std::move(request_headers), saved_headers_, 0,
+        config_->flowdUpstream(), REQ_TYPE_ERROR
+    );
+    error_req->send();
+}
+
 std::unique_ptr<RequestMessage> BavsOutboundRequest::getMessage() {
     // First, form the message
     std::unique_ptr<Http::RequestMessageImpl> message = std::make_unique<Http::RequestMessageImpl>();
@@ -40,7 +57,10 @@ void BavsOutboundRequest::processSuccess(const Http::AsyncClient::Request&, Resp
     int status = atoi(status_str.c_str());
 
     if (status < 200 || status >= 300) {
-        handleConnectionError();
+        std::string message = "Instance id" + saved_headers_[config_->wfIIDHeader()] + "had outbound connection error\n";
+        message += response->body().toString();
+        BavsFilter::bavslog(message);
+        handleBadOutboundResponse(response);
     }
 }
 

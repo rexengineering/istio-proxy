@@ -29,6 +29,7 @@ static const char* CONNECTION_ERROR("FAILED_CONNECTION");
 static const char* CONTEXT_INPUT_ERROR("FAILED_CONTEXT_INPUT_PARSING");
 static const char* CONTEXT_OUTPUT_ERROR("FAILED_CONTEXT_OUTPUT_PARSING");
 static const char* TASK_ERROR("FAILED_TASK");
+static const char* BAD_OUTBOUND_RESPONSE_ERROR("BAD_OUTBOUND_RESPONSE");
 
 // For shadowing traffic.
 // TODO: Make these configurable via bavs.proto
@@ -303,6 +304,7 @@ protected:
     void processSuccess(const AsyncClient::Request&, ResponseMessage*) override;
     void processFailure(const AsyncClient::Request&, AsyncClient::FailureReason) override;
     void handleConnectionError() override;
+    void handleBadOutboundResponse(Http::ResponseMessage*);
 };
 
 class BavsErrorRequest : public BavsRequestBase {
