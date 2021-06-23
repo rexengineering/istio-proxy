@@ -233,6 +233,9 @@ void BavsInboundRequest::doRetry() {
 }
 
 std::string BavsInboundRequest::mergeResponseAndContext(Http::ResponseMessage* response) {
+    if (config_->outputParams().size() == 0) {
+        return getData()->toString();
+    }
     Json::ObjectSharedPtr response_json = Json::Factory::loadFromString(response->body().toString());
     std::string updatee_string;
     /**

@@ -33,15 +33,20 @@ void BavsRequestBase::send() {
     Http::AsyncClient* client = nullptr;
     bool bombs_away = false;
     try {
-        std::string cluster = (request_type_ == REQ_TYPE_INBOUND)
-            ? "inbound|" + std::to_string(target_->port()) + "||"
-            : target_->cluster();
+        std::string cluster;
+        std::string authority = target_->fullHostName();
+        if (request_type_ == REQ_TYPE_INBOUND) {
+            cluster = "inbound|" + std::to_string(target_->port()) + "||";
+        } else {
+            cluster = target_->cluster();
+        }
 
         client = &(config_->clusterManager().httpAsyncClientForCluster(cluster));
         std::unique_ptr<Http::RequestMessage> msg = getMessage();
         if (msg != nullptr && client != nullptr) {
             preprocessHeaders(msg->headers());
             msg->headers().setContentLength(msg->body().length());
+            msg->headers().setHost(authority);
             if (target_->wfTID() != "") {
                 msg->headers().setCopy(
                     LowerCaseString(config_->wfTIDHeader()), target_->wfTID()
@@ -83,6 +88,11 @@ void BavsRequestBase::sendShadowRequest(bool original_req_connected) {
     UpstreamConfigSharedPtr shadow_upstream = config_->shadowUpstream();
 
     std::unique_ptr<Http::RequestMessage> msg = getMessage();
+    if (!msg) {
+        BavsFilter::bavslog(
+            "Failed to shadow traffic on request; likely because of failed context parsing");
+        return;
+    }
 
     preprocessHeaders(msg->headers());
 
