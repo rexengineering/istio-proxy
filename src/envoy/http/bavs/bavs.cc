@@ -82,11 +82,18 @@ FilterHeadersStatus BavsFilter::decodeHeaders(Http::RequestHeaderMap& headers, b
     const Http::HeaderEntry* task_entry = headers.get(
         Http::LowerCaseString(config_->wfTIDHeader())
     );
-    if (task_entry == NULL || (
-        task_entry->value() != NULL &&
-        task_entry->value().getStringView() != config_->inboundUpstream()->wfTID()))
-    {
-        ENVOY_LOG(warn, "BAVS ignoring request: incorrect task id.");
+    ENVOY_LOG(warn, std::string(headers.getPathValue()));
+    if (task_entry == NULL) {
+        ENVOY_LOG(warn, "BAVS ignoring request: NO task id header.");
+        return FilterHeadersStatus::Continue;
+    } else if (task_entry->value() == NULL) {
+        ENVOY_LOG(warn, "BAVS ignoring request: Task Id header is NULL");
+        return FilterHeadersStatus::Continue;
+    } else if (task_entry->value().getStringView() != config_->inboundUpstream()->wfTID()) {
+        std::string wrong_tid_msg = "BAVS ignoring request: incorrect task id: ";
+        wrong_tid_msg += std::string(task_entry->value().getStringView());
+        wrong_tid_msg += " != " + config_->inboundUpstream()->wfTID();
+        ENVOY_LOG(warn, wrong_tid_msg);
         return FilterHeadersStatus::Continue;
     }
 

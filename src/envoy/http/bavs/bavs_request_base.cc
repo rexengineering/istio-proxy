@@ -119,6 +119,15 @@ void BavsRequestBase::sendShadowRequest(bool original_req_connected) {
         // This call sometimes throws upon failure.
         client = &(config_->clusterManager().httpAsyncClientForCluster(shadow_upstream->cluster()));
 
+        BavsFilter::bavslog("about to send these headers:");
+        msg->headers().iterate([](const HeaderEntry& header) -> HeaderMap::Iterate{
+            std::string msg(header.key().getStringView());
+            msg += ": ";
+            msg += std::string(header.value().getStringView());
+            BavsFilter::bavslog(msg);
+            return HeaderMap::Iterate::Continue;
+        });
+
         if (client != nullptr) {
             client->send(std::move(msg), null_callbacks, Http::AsyncClient::RequestOptions());
         } else {
