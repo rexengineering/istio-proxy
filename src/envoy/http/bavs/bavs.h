@@ -48,6 +48,7 @@ static const char* REQ_TYPE_TASK_ERROR("TASK_ERROR");
 static const char* SPAN_ID_HEADER("x-b3-spanid");
 static const char* TRACE_ID_HEADER("x-b3-traceid");
 static const char* REQUEST_ID_HEADER("x-request-id");
+static const char* CONTENT_TYPE_HEADER("content-type");
 
 namespace BavsUtil {
 std::string jstringify(const std::string&);

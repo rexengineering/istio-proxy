@@ -26,6 +26,11 @@ void BavsRequestBase::preprocessHeaders(RequestHeaderMap& headers) const {
     for (const auto& saved_header : saved_headers_) {
         headers.setCopy(Http::LowerCaseString(saved_header.first), saved_header.second);
     }
+    std::string authority = target_->fullHostName();
+    headers.setCopy(LowerCaseString(":authority"), authority);
+    headers.setHost(authority);
+    headers.setMethod(target_->method());
+    headers.setPath(target_->path());
 }
 
 void BavsRequestBase::send() {
@@ -34,7 +39,6 @@ void BavsRequestBase::send() {
     bool bombs_away = false;
     try {
         std::string cluster;
-        std::string authority = target_->fullHostName();
         if (request_type_ == REQ_TYPE_INBOUND) {
             cluster = "inbound|" + std::to_string(target_->port()) + "||";
         } else {
@@ -46,12 +50,21 @@ void BavsRequestBase::send() {
         if (msg != nullptr && client != nullptr) {
             preprocessHeaders(msg->headers());
             msg->headers().setContentLength(msg->body().length());
-            msg->headers().setHost(authority);
             if (target_->wfTID() != "") {
                 msg->headers().setCopy(
                     LowerCaseString(config_->wfTIDHeader()), target_->wfTID()
                 );
             }
+
+            BavsFilter::bavslog("about to send these headers:");
+            msg->headers().iterate([](const HeaderEntry& header) -> HeaderMap::Iterate{
+                std::string msg(header.key().getStringView());
+                msg += ": ";
+                msg += std::string(header.value().getStringView());
+                BavsFilter::bavslog(msg);
+                return HeaderMap::Iterate::Continue;
+            });
+
             std::string logMessage(
                 "Sending " + request_type_ + " request:\n" + msg->body().toString()
             );
@@ -118,15 +131,6 @@ void BavsRequestBase::sendShadowRequest(bool original_req_connected) {
     try {
         // This call sometimes throws upon failure.
         client = &(config_->clusterManager().httpAsyncClientForCluster(shadow_upstream->cluster()));
-
-        BavsFilter::bavslog("about to send these headers:");
-        msg->headers().iterate([](const HeaderEntry& header) -> HeaderMap::Iterate{
-            std::string msg(header.key().getStringView());
-            msg += ": ";
-            msg += std::string(header.value().getStringView());
-            BavsFilter::bavslog(msg);
-            return HeaderMap::Iterate::Continue;
-        });
 
         if (client != nullptr) {
             client->send(std::move(msg), null_callbacks, Http::AsyncClient::RequestOptions());

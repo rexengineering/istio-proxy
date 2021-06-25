@@ -34,7 +34,7 @@ BavsFilterConfig::BavsFilterConfig(const bavs::BAVSFilter& proto_config, Upstrea
     }
     std::set<std::string> default_forward_headers({
         SPAN_ID_HEADER, TRACE_ID_HEADER, REQUEST_ID_HEADER, wf_did_header_,
-        wf_iid_header_, wf_tid_header_
+        wf_iid_header_, wf_tid_header_, CONTENT_TYPE_HEADER
     });
 
     for (const auto& hdr: default_forward_headers) {
@@ -67,10 +67,12 @@ void BavsFilter::sendMessage() {
         absl::nullopt,
         ""
     );
+    std::unique_ptr<RequestHeaderMapImpl> hdrs_to_send(RequestHeaderMapImpl::create());
+    hdrs_to_send->setCopy(LowerCaseString(CONTENT_TYPE_HEADER), saved_headers_[CONTENT_TYPE_HEADER]);
     BavsInboundRequest* inbound_request = new BavsInboundRequest(
             config_,
             std::move(original_inbound_data_),
-            std::move(inbound_headers_),
+            std::move(hdrs_to_send),
             saved_headers_,
             config_->inboundUpstream()->totalAttempts() - 1,
             config_->inboundUpstream(),
