@@ -12,14 +12,15 @@ BavsRequestBase::BavsRequestBase(BavsFilterConfigSharedPtr config,
                                  std::string request_type)
                                  :  config_(config),
                                     data_(std::move(data)),
-                                    headers_(std::move(headers)),
                                     retries_left_(retries_left),
                                     request_type_(request_type),
                                     saved_headers_(saved_headers),
-                                    target_(target) {
+                                    target_(target),
+                                    headers_(std::move(headers)) {
     Random::RandomGeneratorImpl rng;
     cm_callback_id_ = rng.uuid();
     config_->clusterManager().storeRequestCallbacks(cm_callback_id_, this);
+    preprocessHeaders(*headers_);
 }
 
 void BavsRequestBase::preprocessHeaders(RequestHeaderMap& headers) const {
@@ -158,7 +159,9 @@ Http::RequestHeaderMapPtr BavsRequestBase::copyHeaders(Http::RequestOrResponseHe
 }
 
 Http::RequestHeaderMapPtr BavsRequestBase::copyHeaders() {
-    return copyHeaders(*headers_);
+    auto headers = copyHeaders(*headers_);
+    preprocessHeaders(*headers);
+    return headers;
 }
 
 void BavsRequestBase::onSuccess(

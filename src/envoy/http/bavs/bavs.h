@@ -173,7 +173,6 @@ public:
 protected:
     BavsFilterConfigSharedPtr config_;
     const std::unique_ptr<Buffer::OwnedImpl> data_;
-    const std::unique_ptr<Http::RequestHeaderMap> headers_;
     const int retries_left_;
     const std::string request_type_;
     std::map<std::string, std::string> saved_headers_;
@@ -220,6 +219,7 @@ protected:
 
 private:
     void preprocessHeaders(RequestHeaderMap&) const;
+    std::unique_ptr<Http::RequestHeaderMap> headers_;
 
     std::string cm_callback_id_;
 };

@@ -202,24 +202,32 @@ std::string build_json_from_params(const Json::ObjectSharedPtr json_obj,
             continue;
         }
 
-        std::string element;
-        if (param.type() == "STRING") {
-            element = jstringify(json_obj->getString(param.value()));
-        } else if (param.type() == "BOOLEAN") {
-            element = json_obj->getBoolean(param.value()) ? "true" : "false";
-        } else if (param.type() == "DOUBLE") {
-            element = std::to_string(json_obj->getDouble(param.value()));
-        } else if (param.type() == "INTEGER") {
-            element = std::to_string(json_obj->getInteger(param.value()));
-        } else if (param.type() == "JSON_OBJECT") {
-            element = json_obj->getObject(param.value())->asJsonString();
-        } else if (param.type() == "JSON_ARRAY") {
-            std::string cur_type = "JSON_ARRAY";
-            element = get_array_or_obj_str_from_json(json_obj, param.value(), cur_type);
-        } else {
-            throw EnvoyException("Invalid Envoy Config");
+        // At this point, we know that the param exists in the JSON. But we don't
+        // know if it's null or not, and there's no good way to test except to try
+        // to access it and see if we get an exception.
+        
+        try {
+            std::string element;
+            if (param.type() == "STRING") {
+                element = jstringify(json_obj->getString(param.value()));
+            } else if (param.type() == "BOOLEAN") {
+                element = json_obj->getBoolean(param.value()) ? "true" : "false";
+            } else if (param.type() == "DOUBLE") {
+                element = std::to_string(json_obj->getDouble(param.value()));
+            } else if (param.type() == "INTEGER") {
+                element = std::to_string(json_obj->getInteger(param.value()));
+            } else if (param.type() == "JSON_OBJECT") {
+                element = json_obj->getObject(param.value())->asJsonString();
+            } else if (param.type() == "JSON_ARRAY") {
+                std::string cur_type = "JSON_ARRAY";
+                element = get_array_or_obj_str_from_json(json_obj, param.value(), cur_type);
+            }
+            json_elements[param.name()] = element;
+        } catch (const EnvoyException&) {
+            // If we got this far, failure caused by null, which isn't a failure.
+            // Gahck I hate working in Envoy.
+            json_elements[param.name()] = "null";
         }
-        json_elements[param.name()] = element;
     }
     // TODO: Error handling
 
