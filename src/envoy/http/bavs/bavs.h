@@ -222,6 +222,7 @@ private:
     std::unique_ptr<Http::RequestHeaderMap> headers_;
 
     std::string cm_callback_id_;
+    bool bombs_away_;
 };
 
 

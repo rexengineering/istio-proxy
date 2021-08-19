@@ -16,7 +16,8 @@ BavsRequestBase::BavsRequestBase(BavsFilterConfigSharedPtr config,
                                     request_type_(request_type),
                                     saved_headers_(saved_headers),
                                     target_(target),
-                                    headers_(std::move(headers)) {
+                                    headers_(std::move(headers)),
+                                    bombs_away_(false) {
     Random::RandomGeneratorImpl rng;
     cm_callback_id_ = rng.uuid();
     config_->clusterManager().storeRequestCallbacks(cm_callback_id_, this);
@@ -37,7 +38,6 @@ void BavsRequestBase::preprocessHeaders(RequestHeaderMap& headers) const {
 void BavsRequestBase::send() {
     // Find the client
     Http::AsyncClient* client = nullptr;
-    bool bombs_away = false;
     try {
         std::string cluster;
         if (request_type_ == REQ_TYPE_INBOUND) {
@@ -71,7 +71,7 @@ void BavsRequestBase::send() {
             );
            BavsFilter::bavslog(logMessage);
             client->send(std::move(msg), *this, AsyncClient::RequestOptions());
-            bombs_away = true;
+            bombs_away_ = true;
         }
     } catch(const EnvoyException&) {
         // The cluster wasn't found, so we need to begin error processing.
@@ -81,8 +81,9 @@ void BavsRequestBase::send() {
        BavsFilter::bavslog("Caught connection error.");
         handleConnectionError();
     }
-    sendShadowRequest(bombs_away);
-    if (!bombs_away) {
+
+    if (!bombs_away_) {
+        sendShadowRequest(bombs_away_);
         // If we never ended up fully sending the request, we're not gonna
         // have a call to the `onSuccess` or the `onFailure` methods.
         // Therefore, we must do some cleanup.
@@ -171,6 +172,7 @@ void BavsRequestBase::onSuccess(
         "\n" + response->body().toString();
    BavsFilter::bavslog(logMessage);
     processSuccess(request, response.get());
+    sendShadowRequest(bombs_away_);
     config_->clusterManager().eraseRequestCallbacks(cm_callback_id_);
 }
 
@@ -178,6 +180,7 @@ void BavsRequestBase::onFailure(
         const Http::AsyncClient::Request& request, Http::AsyncClient::FailureReason reason) {
    BavsFilter::bavslog("BAVS: Request stream broken before request could be sent.");
     processFailure(request, reason);
+    sendShadowRequest(bombs_away_);
     config_->clusterManager().eraseRequestCallbacks(cm_callback_id_);
 }
 
