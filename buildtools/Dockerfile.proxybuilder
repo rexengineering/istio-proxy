@@ -1,0 +1,9 @@
+FROM gcr.io/istio-testing/build-tools-proxy@sha256:f811d5d113e34f33ecec18b6b1e03dc0139d5cda15c0b1d70c8f0f1b6d016a0b AS releasebuilder
+RUN apt-get update -y && apt-get install -y emacs less
+RUN mkdir /proxy
+RUN mkdir /envoy
+
+COPY buildtools/proxybuilder_buildscript.sh /build.sh
+
+CMD ["/bin/bash"]
+# Now, just run bash on it and try to build from the resulting commandline
