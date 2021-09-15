@@ -25,14 +25,51 @@ load(
 envoy_package()
 
 envoy_cc_library(
+    name = "config",
+    srcs = ["config.cc"],
+    hdrs = ["config.h"],
+    repository = "@envoy",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":upstream_request_lib",
+        "@com_google_absl//absl/types:optional",
+        "@envoy//envoy/registry",
+        "@envoy//envoy/router:router_interface",
+        "@envoy//envoy/upstream:load_balancer_interface",
+        "@envoy//envoy/upstream:thread_local_cluster_interface",
+        "@envoy//source/common/protobuf",
+    ],
+)
+
+envoy_cc_library(
     name = "upstream_request_lib",
     srcs = ["upstream_request.cc"],
     hdrs = ["upstream_request.h"],
     repository = "@envoy",
     deps = [
-        "@envoy//include/envoy/http:codec_interface",
-        "@envoy//include/envoy/router:router_interface",
+        "@com_google_absl//absl/types:optional",
+        "@envoy//envoy/http:codec_interface",
+        "@envoy//envoy/router:router_interface",
+        "@envoy//envoy/stream_info:stream_info_interface",
+        "@envoy//envoy/upstream:host_description_interface",
+        "@envoy//envoy/upstream:load_balancer_interface",
+        "@envoy//envoy/upstream:thread_local_cluster_interface",
         "@envoy//source/extensions/upstreams/http/http:upstream_request_lib",
+    ],
+)
+
+envoy_cc_test(
+    name = "integration_test",
+    srcs = ["integration_test.cc"],
+    repository = "@envoy",
+    deps = [
+        ":config",
+        "@envoy//envoy/network:address_interface",
+        "@envoy//source/common/http:codec_client_lib",
+        "@envoy//test/integration:http_integration_lib",
+        "@envoy//test/test_common:environment_lib",
+        "@envoy//test/test_common:registry_lib",
+        "@envoy_api//envoy/config/bootstrap/v3:pkg_cc_proto",
     ],
 )
 

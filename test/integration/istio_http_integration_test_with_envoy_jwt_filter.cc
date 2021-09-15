@@ -19,15 +19,14 @@
 // metadata) and that information can only be observed at the end.
 
 #include "envoy/config/trace/v3/zipkin.pb.h"
-#include "extensions/filters/http/well_known_names.h"
 #include "fmt/printf.h"
 #include "gmock/gmock.h"
+#include "source/extensions/filters/http/well_known_names.h"
 #include "src/envoy/utils/filter_names.h"
 #include "src/envoy/utils/trace_headers.h"
 #include "src/istio/utils/attribute_names.h"
 #include "test/integration/http_protocol_integration.h"
 
-using ::google::protobuf::util::error::Code;
 using ::testing::Contains;
 using ::testing::Not;
 

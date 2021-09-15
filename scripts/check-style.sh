@@ -18,7 +18,7 @@
 #
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-CLANG_VERSION_REQUIRED="10.0.1"
+CLANG_VERSION_REQUIRED="11.0.1"
 CLANG_FORMAT=$(command -v clang-format)
 CLANG_VERSION="$(${CLANG_FORMAT} -version 2>/dev/null | cut -d ' ' -f 3 | cut -d '-' -f 1)"
 if [[ ! -x "${CLANG_FORMAT}" || "${CLANG_VERSION}" != "${CLANG_VERSION_REQUIRED}" ]]; then
@@ -39,7 +39,7 @@ if [[ ! -x "${CLANG_FORMAT}" || "${CLANG_VERSION}" != "${CLANG_VERSION_REQUIRED}
   echo "Installing required clang-format ${CLANG_VERSION_REQUIRED} to ${CLANG_DIRECTORY}"
 
   mkdir -p "${CLANG_DIRECTORY}"
-  curl --silent --show-error --retry 10 \
+  curl -L --silent --show-error --retry 10 \
     "${LLVM_URL_PREFIX}-${CLANG_VERSION_REQUIRED}/clang+llvm-${CLANG_VERSION_REQUIRED}-${CLANG_BIN}" \
     | tar Jx -C "${CLANG_DIRECTORY}" --strip=1 \
   || { echo "Could not install required clang-format. Skip formatting." ; exit 1 ; }

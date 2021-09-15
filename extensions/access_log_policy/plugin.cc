@@ -29,7 +29,7 @@
 
 #else
 
-#include "common/common/base64.h"
+#include "source/common/common/base64.h"
 namespace proxy_wasm {
 namespace null_plugin {
 namespace AccessLogPolicy {
@@ -82,8 +82,9 @@ bool PluginRootContext::configure(size_t configuration_size) {
   auto configuration = configuration_data->toString();
   JsonParseOptions json_options;
   json_options.ignore_unknown_fields = true;
-  Status status = JsonStringToMessage(configuration, &config_, json_options);
-  if (status != Status::OK) {
+  const auto status =
+      JsonStringToMessage(configuration, &config_, json_options);
+  if (!status.ok()) {
     logWarn("Cannot parse AccessLog plugin configuration JSON string " +
             configuration + ", " + status.message().ToString());
     return false;

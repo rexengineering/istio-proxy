@@ -16,15 +16,15 @@
 #include <set>
 #include <unordered_map>
 
-#include "common/buffer/buffer_impl.h"
-#include "common/http/message_impl.h"
-#include "common/stats/isolated_store_impl.h"
-#include "common/stream_info/stream_info_impl.h"
 #include "envoy/server/lifecycle_notifier.h"
-#include "extensions/filters/common/expr/cel_state.h"
-#include "extensions/filters/http/wasm/wasm_filter.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "source/common/buffer/buffer_impl.h"
+#include "source/common/http/message_impl.h"
+#include "source/common/stats/isolated_store_impl.h"
+#include "source/common/stream_info/stream_info_impl.h"
+#include "source/extensions/filters/common/expr/cel_state.h"
+#include "source/extensions/filters/http/wasm/wasm_filter.h"
 #include "test/mocks/grpc/mocks.h"
 #include "test/mocks/http/mocks.h"
 #include "test/mocks/network/mocks.h"
@@ -64,7 +64,7 @@ using WasmFilterConfig = envoy::extensions::filters::http::wasm::v3::Wasm;
 class TestFilter : public Envoy::Extensions::Common::Wasm::Context {
  public:
   TestFilter(Wasm* wasm, uint32_t root_context_id,
-             Envoy::Extensions::Common::Wasm::PluginSharedPtr plugin)
+             Envoy::Extensions::Common::Wasm::PluginHandleSharedPtr plugin)
       : Envoy::Extensions::Common::Wasm::Context(wasm, root_context_id,
                                                  plugin) {}
   void log(const Http::RequestHeaderMap* request_headers,
@@ -197,7 +197,7 @@ class WasmHttpFilterTest : public testing::TestWithParam<TestParams> {
             *root_context = new TestRoot(wasm, plugin);
             return *root_context;
           });
-      wasm_ = plugin_handle_->wasmHandleForTest();
+      wasm_ = plugin_handle_->wasmHandle();
     }
     if (!c.do_not_add_filter) {
       setupFilter();
@@ -207,7 +207,8 @@ class WasmHttpFilterTest : public testing::TestWithParam<TestParams> {
   void setupFilter() {
     auto wasm = wasm_ ? wasm_->wasm().get() : nullptr;
     int root_context_id = wasm ? wasm->getRootContext(plugin_, false)->id() : 0;
-    filter_ = std::make_unique<TestFilter>(wasm, root_context_id, plugin_);
+    filter_ =
+        std::make_unique<TestFilter>(wasm, root_context_id, plugin_handle_);
     filter_->setDecoderFilterCallbacks(decoder_callbacks_);
     filter_->setEncoderFilterCallbacks(encoder_callbacks_);
 
