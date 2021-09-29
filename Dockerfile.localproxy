@@ -1,5 +1,6 @@
-FROM istio/proxyv2:1.8.2 AS theirproxy
+FROM istio/proxyv2:1.11.2 AS theirproxy
 
 COPY envoy /usr/local/bin/
+RUN chmod 775 /build.sh
 
 ENTRYPOINT ["/usr/local/bin/pilot-agent"]

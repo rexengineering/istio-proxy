@@ -1,5 +1,0 @@
-syntax = "proto3";
-
-package datatracelogger;
-
-import "validate/validate.proto";

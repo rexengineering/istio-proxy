@@ -18,6 +18,15 @@ workspace(name = "io_istio_proxy")
 
 # http_archive is not a native function since bazel 0.19
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file")
+
+http_archive(
+    name = "rules_python",
+    url = "https://github.com/bazelbuild/rules_python/releases/download/0.4.0/rules_python-0.4.0.tar.gz",
+    sha256 = "954aa89b491be4a083304a2cb838019c8b8c3720a7abb9c4cb81ac7a24230cea",
+)
+
+load("@rules_python//python:pip.bzl", "pip_install")
+
 load(
     "//bazel:repositories.bzl",
     "docker_dependencies",
@@ -43,9 +52,7 @@ ENVOY_SHA = "a2a1e3eed4214a38608ec223859fcfa8fb679b14"
 
 ENVOY_SHA256 = "f991ff2e122b213825a22304d429e737fd2000ef63c212724e7afe3d2be4faab"
 
-ENVOY_SHA256 = "fd985dffa9f0035de4e5396f069c90dffb40870a8fdbd02bc4a997b9e216815a"
-
-ENVOY_ORG = "istio"
+ENVOY_ORG = "envoyproxy"
 
 ENVOY_REPO = "envoy"
 

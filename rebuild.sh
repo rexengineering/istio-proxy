@@ -11,4 +11,4 @@ echo "Done building. Copying Envoy Binary."
 docker cp proxybuilder:/proxy/bazel-bin/src/envoy/envoy buildtools/
 
 echo "Done copying Envoy Binary. Building final REX Istio-Proxy image."
-docker build -t 'rex-proxy:1.8.2' -f Dockerfile.localproxy buildtools/
+docker build -t 'rex-proxy:1.11.2' -f Dockerfile.localproxy buildtools/

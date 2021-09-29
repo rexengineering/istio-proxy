@@ -1,9 +1,16 @@
-FROM gcr.io/istio-testing/build-tools-proxy@sha256:f811d5d113e34f33ecec18b6b1e03dc0139d5cda15c0b1d70c8f0f1b6d016a0b AS releasebuilder
+FROM gcr.io/istio-testing/build-tools-proxy:release-1.11-latest AS releasebuilder
 RUN apt-get update -y && apt-get install -y emacs less
+RUN wget https://github.com/llvm/llvm-project/releases/download/llvmorg-12.0.1/clang+llvm-12.0.1-x86_64-linux-gnu-ubuntu-16.04.tar.xz .
+RUN xz -d ./clang+llvm-12.0.1-x86_64-linux-gnu-ubuntu-16.04.tar.xz
+RUN tar xvf ./clang+llvm-12.0.1-x86_64-linux-gnu-ubuntu-16.04.tar
+RUN mv ./clang+llvm-12.0.1-x86_64-linux-gnu-ubuntu- /llvm-toolchain-12.0.1
+
 RUN mkdir /proxy
 RUN mkdir /envoy
+RUN mkdir /work
 
 COPY buildtools/proxybuilder_buildscript.sh /build.sh
+RUN chmod 755 /build.sh
 
 CMD ["/bin/bash"]
 # Now, just run bash on it and try to build from the resulting commandline

@@ -11,15 +11,15 @@ else
 fi
 
 # Build the image for the "proxybuilder" container.
-docker build -t rex-proxybuilder:1.8.2 -f buildtools/Dockerfile.proxybuilder .
+docker build -t rex-proxybuilder:1.11.2 -f buildtools/Dockerfile.proxybuilder .
 
 # Run a container from the above image. This container will have two volume mounts,
 # one at /envoy and one at /proxy. Each mount corresponds to the local repository
 # on your laptop; therefore, when you edit code on your laptop, it edits code on
 # the builder container.
 
-echo "Please check in this shell that the /proxy and /envoy directories have the content you need. Then type ^D"
+#echo "Please check in this shell that the /proxy and /envoy directories have the content you need. Then type ^D"
 
-docker run -it --mount type=bind,source=${REX_ISTIO_ENVOY_PATH},target=/envoy --mount type=bind,source=${PWD},target=/proxy --name proxybuilder rex-proxybuilder:1.8.2 /bin/bash
+docker run -it --mount type=bind,source=${REX_ISTIO_ENVOY_PATH},target=/envoy --mount type=bind,source=${PWD},target=/proxy --name proxybuilder rex-proxybuilder:1.11.2 #/bin/bash
 
-echo "If your /envoy and /proxy folders on the container look right, then you are ready to start building!"
+#echo "If your /envoy and /proxy folders on the container look right, then you are ready to start building!"
